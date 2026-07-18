@@ -64,9 +64,14 @@ export default function Home() {
       setRecording(URL.createObjectURL(blob));
       const callId = useCallStore.getState().callId;
       if (callId != null) {
-        uploadRecording(callId, blob).catch((e) =>
-          console.warn("recording upload failed", e),
-        );
+        // Await the upload before the caller disconnects, so it persists the
+        // recording_url before the agent writes the rest of the call record.
+        // Otherwise the two writes race and the recording can be dropped.
+        try {
+          await uploadRecording(callId, blob);
+        } catch (e) {
+          console.warn("recording upload failed", e);
+        }
       }
     }
     endCall();
