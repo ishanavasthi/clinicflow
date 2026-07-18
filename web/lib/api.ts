@@ -39,6 +39,21 @@ export function fetchFaqs(): Promise<FAQ[]> {
   return request<FAQ[]>("/faqs");
 }
 
+/** Upload a call recording blob. Returns the server URL to fetch it back. */
+export async function uploadRecording(
+  callId: number,
+  blob: Blob,
+): Promise<string> {
+  const res = await fetch(`${API_URL}/calls/${callId}/recording`, {
+    method: "POST",
+    headers: { "Content-Type": blob.type || "audio/webm" },
+    body: blob,
+  });
+  if (!res.ok) throw new Error("Recording upload failed");
+  const data = (await res.json()) as { recording_url: string };
+  return `${API_URL}${data.recording_url}`;
+}
+
 /** Patch a patient record with edited intake fields. */
 export function updatePatient(
   patientId: number,

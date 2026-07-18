@@ -117,7 +117,7 @@ async def entrypoint(ctx: JobContext) -> None:
     ctx.add_shutdown_callback(on_shutdown)
 
     await session.start(room=ctx.room, agent=Receptionist(state, server, publisher))
-    await publisher.publish("status", {"status": "active"})
+    await publisher.publish("status", {"status": "active", "call_id": state.call_id})
 
 
 if __name__ == "__main__":

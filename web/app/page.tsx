@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MotionConfig, motion } from "framer-motion";
 import { RoomContext } from "@livekit/components-react";
 import { toast } from "sonner";
-import { Mic, MicOff, PhoneCall, PhoneOff, Radio } from "lucide-react";
+import { Mic, MicOff, PhoneCall, PhoneOff, Radio, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { WallClock } from "@/components/shell/WallClock";
 import { StatusBadge } from "@/components/call/StatusBadge";
 import { CallWorkspace } from "@/components/call/CallWorkspace";
+import { PostCallView } from "@/components/call/PostCallView";
 import { connectCaller } from "@/lib/livekit";
-import { fetchDepartments } from "@/lib/api";
+import { fetchDepartments, uploadRecording } from "@/lib/api";
+import { CallRecorder } from "@/lib/recorder";
 import { useCallStore } from "@/stores/callStore";
 import { fadeUp, stagger } from "@/lib/motion";
 import type { Department } from "@/lib/types";
@@ -27,10 +29,13 @@ export default function Home() {
     setConnection,
     setError,
     setMuted,
+    setRecording,
+    endCall,
     reset,
   } = useCallStore();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [depsError, setDepsError] = useState<string | null>(null);
+  const recorderRef = useRef<CallRecorder | null>(null);
 
   useEffect(() => {
     fetchDepartments()
@@ -40,14 +45,45 @@ export default function Home() {
 
   const busy = status === "connecting" || status === "active";
   const inCall = status === "active" && room !== null;
+  const ended = status === "ended" || status === "wrap-up";
+
+  /** Stop recording, upload it, and mark the call ended. Safe to call twice. */
+  async function finalizeCall() {
+    if (useCallStore.getState().status === "ended") return;
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    let blob: Blob | null = null;
+    try {
+      if (recorder) blob = await recorder.stop();
+    } catch (e) {
+      console.warn("recorder stop failed", e);
+    }
+    if (blob && blob.size > 0) {
+      setRecording(URL.createObjectURL(blob));
+      const callId = useCallStore.getState().callId;
+      if (callId != null) {
+        uploadRecording(callId, blob).catch((e) =>
+          console.warn("recording upload failed", e),
+        );
+      }
+    }
+    endCall();
+  }
 
   async function handleStart() {
     setStatus("connecting");
     try {
       const { room: connected, info } = await connectCaller(undefined, {
-        onDisconnected: () => reset(),
+        onDisconnected: () => void finalizeCall(),
       });
       setConnection(connected, info.room, info.identity);
+      try {
+        const recorder = new CallRecorder(connected);
+        recorder.start();
+        recorderRef.current = recorder;
+      } catch (e) {
+        console.warn("recording unavailable", e);
+      }
       toast.success(`Connected to ${info.room}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to connect";
@@ -57,9 +93,16 @@ export default function Home() {
   }
 
   async function handleEnd() {
+    setStatus("wrap-up");
+    await finalizeCall();
     await useCallStore.getState().room?.disconnect();
-    reset();
     toast.message("Call ended");
+  }
+
+  function handleNewCall() {
+    const url = useCallStore.getState().recordingUrl;
+    if (url && url.startsWith("blob:")) URL.revokeObjectURL(url);
+    reset();
   }
 
   async function handleToggleMute() {
@@ -112,6 +155,15 @@ export default function Home() {
                     End call
                   </Button>
                 </>
+              ) : ended ? (
+                <Button
+                  size="sm"
+                  onClick={handleNewCall}
+                  disabled={status === "wrap-up"}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  New call
+                </Button>
               ) : (
                 <Button size="sm" onClick={handleStart} disabled={busy}>
                   <PhoneCall className="h-4 w-4" />
@@ -135,6 +187,8 @@ export default function Home() {
                   <CallWorkspace />
                 </div>
               </RoomContext.Provider>
+            ) : ended ? (
+              <PostCallView />
             ) : (
               <IdleView
                 departments={departments}

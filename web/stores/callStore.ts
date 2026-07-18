@@ -39,6 +39,8 @@ interface CallState {
   // Live call data, driven by agent-state events
   intake: Record<string, string>;
   patientId: number | null;
+  callId: number | null;
+  recordingUrl: string | null;
   offeredSlots: SlotOption[];
   offeredDepartment: string | null;
   booking: BookedAppointment | null;
@@ -51,6 +53,8 @@ interface CallState {
   setError: (error: string | null) => void;
   setMuted: (muted: boolean) => void;
   setIntakeFields: (fields: Record<string, string>) => void;
+  setRecording: (url: string | null) => void;
+  endCall: () => void;
   applyEvent: (event: AgentStateEvent) => void;
   reset: () => void;
 }
@@ -58,6 +62,8 @@ interface CallState {
 const INITIAL_DATA = {
   intake: {},
   patientId: null as number | null,
+  callId: null as number | null,
+  recordingUrl: null as string | null,
   offeredSlots: [] as SlotOption[],
   offeredDepartment: null as string | null,
   booking: null as BookedAppointment | null,
@@ -96,6 +102,11 @@ export const useCallStore = create<CallState>((set) => ({
   setIntakeFields: (fields) =>
     set((state) => ({ intake: { ...state.intake, ...fields } })),
 
+  setRecording: (recordingUrl) => set({ recordingUrl }),
+
+  // Keep the collected data and transcript for the post-call view; just mark ended.
+  endCall: () => set({ status: "ended", muted: false }),
+
   applyEvent: (event) =>
     set((state) => reduceEvent(state, event)),
 
@@ -128,10 +139,11 @@ function reduceEvent(
   const ts = event.ts;
   switch (event.type) {
     case "status": {
-      const payload = event.payload as unknown as StatusPayload;
+      const payload = event.payload as unknown as StatusPayload & {
+        call_id?: number | null;
+      };
       if (payload.status === "ended") {
         return {
-          status: "ended",
           timeline: pushTimeline(state, {
             type: "status",
             ts,
@@ -139,6 +151,8 @@ function reduceEvent(
           }),
         };
       }
+      // "active" carries the numeric call id so the dashboard can upload a recording.
+      if (payload.call_id != null) return { callId: payload.call_id };
       return {};
     }
 
