@@ -13,7 +13,6 @@ const FIELDS: { key: string; label: string; placeholder: string }[] = [
   { key: "age", label: "Age", placeholder: "e.g. 38" },
   { key: "phone", label: "Phone number", placeholder: "10-digit mobile" },
   { key: "symptoms", label: "Reason / symptoms", placeholder: "Reason for visit" },
-  { key: "insurance", label: "Insurance", placeholder: "Insurance provider" },
 ];
 
 export function IntakePanel() {

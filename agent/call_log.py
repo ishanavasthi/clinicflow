@@ -57,7 +57,6 @@ def write_call_record(
             "age": state.intake.get("age"),
             "phone": state.intake.get("phone"),
             "symptoms": state.intake.get("symptoms"),
-            "insurance": state.intake.get("insurance"),
         },
         "routed_department": state.routed_department,
         "booking": state.booking,

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -94,6 +95,25 @@ async def entrypoint(ctx: JobContext) -> None:
         # response, but keep it low so the model cannot chain far ahead.
         max_tool_steps=4,
     )
+
+    # A provider hiccup (most likely a Groq rate limit) must never leave the agent
+    # silent. Speak a short fallback, debounced so retries do not stack.
+    last_fallback = {"ts": 0.0}
+
+    def on_error(_event: object) -> None:
+        now = time.monotonic()
+        if now - last_fallback["ts"] < 8.0:
+            return
+        last_fallback["ts"] = now
+        try:
+            session.say(
+                "Sorry, I had a brief hiccup. Could you say that again?",
+                add_to_chat_ctx=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("fallback speech failed: %s", exc)
+
+    session.on("error", on_error)
 
     async def on_shutdown() -> None:
         if state.call_id is not None:

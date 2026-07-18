@@ -86,13 +86,12 @@ class Receptionist(Agent):
     async def update_intake(
         self, context: RunContext, field: str, value: str
     ) -> str:
-        """Record one patient intake detail as soon as the caller gives it.
-
-        Call this once per detail, right after the caller provides it.
+        """Record one detail the caller just said. Only with a value they actually
+        gave (never invented).
 
         Args:
-            field: one of name, age, phone, symptoms, insurance.
-            value: the value the caller gave, as plain text.
+            field: one of name, age, phone, symptoms.
+            value: the value the caller gave.
         """
         result = await apply_intake(
             self.state, self.server, self.publisher, field, value
@@ -106,13 +105,11 @@ class Receptionist(Agent):
 
     @function_tool()
     async def check_availability(self, context: RunContext, department: str) -> str:
-        """Look up open appointment slots in a department.
-
-        Call this once you know which department the caller needs, before booking.
+        """Look up open slots in a department, before booking.
 
         Args:
-            department: one of Emergency, General Medicine, Pediatrics,
-                Orthopedics, Cardiology.
+            department: Emergency, General Medicine, Pediatrics, Orthopedics, or
+                Cardiology.
         """
         result = await check_availability(
             self.state, self.server, self.publisher, department
@@ -136,12 +133,10 @@ class Receptionist(Agent):
     async def book_appointment(
         self, context: RunContext, slot_id: int, reason: str = ""
     ) -> str:
-        """Book a specific slot for the caller.
-
-        Only call this after check_availability and after the caller picks a time.
+        """Book a slot the caller picked from check_availability.
 
         Args:
-            slot_id: the slot_id of the chosen slot from check_availability.
+            slot_id: the chosen slot_id.
             reason: the visit reason or symptom, if known.
         """
         result = await book_appointment(
@@ -160,14 +155,10 @@ class Receptionist(Agent):
 
     @function_tool()
     async def answer_faq(self, context: RunContext, topic: str) -> str:
-        """Log that you answered a frequently asked question, for the timeline.
-
-        Call this right after you answer a question about hours, location,
-        parking, insurance, or the visitor policy, using the clinic knowledge in
-        your instructions.
+        """Log an answered FAQ, after answering from the clinic info.
 
         Args:
-            topic: one of hours, location, parking, insurance, visiting.
+            topic: hours, location, parking, insurance, or visiting.
         """
         await answer_faq(self.state, self.server, self.publisher, topic)
         return "Logged. Continue helping the caller."
@@ -176,14 +167,11 @@ class Receptionist(Agent):
     async def route_to_department(
         self, context: RunContext, department: str, reason: str
     ) -> str:
-        """Route the caller to the right department.
-
-        Use for a normal transfer once you know the department, or immediately
-        for an emergency (chest pain, trouble breathing, severe bleeding, stroke).
+        """Route the caller to a department. Use immediately for emergencies.
 
         Args:
-            department: one of Emergency, General Medicine, Pediatrics,
-                Orthopedics, Cardiology.
+            department: Emergency, General Medicine, Pediatrics, Orthopedics, or
+                Cardiology.
             reason: a short reason for the routing.
         """
         result = await route_to_department(
