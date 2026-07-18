@@ -20,9 +20,8 @@ from dotenv import load_dotenv
 _AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_AGENT_DIR, ".env"))
 
-from livekit.plugins import rumik_ai  # noqa: E402
-
 from prompts import GREETING_TEXT  # noqa: E402
+from tts import build_tts  # noqa: E402
 
 AUDIO_DIR = os.path.join(_AGENT_DIR, "audio")
 
@@ -33,7 +32,7 @@ PHRASES = {
 
 
 async def synth(session: aiohttp.ClientSession, text: str) -> tuple[bytes, int]:
-    tts = rumik_ai.TTS(model="muga", tone="neutral", http_session=session)
+    tts = build_tts(http_session=session)
     stream = tts.synthesize(text)
     pcm = bytearray()
     sample_rate = 24000

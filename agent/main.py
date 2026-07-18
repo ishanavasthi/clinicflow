@@ -22,13 +22,14 @@ from livekit.agents import (
     WorkerOptions,
     cli,
 )
-from livekit.plugins import deepgram, rumik_ai, silero
+from livekit.plugins import deepgram, silero
 
 from call_log import build_record, summary_of, write_record
 from llm import build_llm
 from receptionist import Receptionist
 from server_client import ServerClient
 from state import AgentStatePublisher, CallState
+from tts import build_tts
 
 load_dotenv()
 
@@ -84,7 +85,7 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=ctx.proc.userdata["vad"],
         stt=deepgram.STT(model="nova-3"),
         llm=build_llm(),
-        tts=rumik_ai.TTS(model="muga", tone="neutral"),
+        tts=build_tts(),
         # Be more patient so the agent waits for the caller to finish instead of
         # jumping in during a natural pause, and ignore stray one-word noise so it
         # does not falsely interrupt itself. Use the mute button for longer pauses.
