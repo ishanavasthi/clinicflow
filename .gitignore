@@ -1,0 +1,6 @@
+# Local development
+.claude/
+.plans/
+CLAUDE.md
+PLAN.md
+session-context.jsonl
