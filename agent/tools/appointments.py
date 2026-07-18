@@ -8,11 +8,23 @@ from server_client import ServerClient
 
 
 def format_slot_time(iso: str) -> str:
-    """Turn an ISO timestamp into a spoken label like 'Saturday, July 19 at 9:30 AM'."""
+    """Turn an ISO timestamp into a natural spoken label like
+    'Saturday, July 19 at 9:30 in the morning'.
+
+    Uses 'in the morning/afternoon/evening' instead of AM/PM: it reads
+    conversationally, and it avoids the TTS voicing the meridiem twice for a
+    colon time like '9:30 AM'.
+    """
     dt = datetime.fromisoformat(iso)
-    hour = dt.hour % 12 or 12
-    meridiem = "AM" if dt.hour < 12 else "PM"
-    return f"{dt.strftime('%A, %B %-d')} at {hour}:{dt.minute:02d} {meridiem}"
+    hour12 = dt.hour % 12 or 12
+    clock = f"{hour12}" if dt.minute == 0 else f"{hour12}:{dt.minute:02d}"
+    if dt.hour < 12:
+        period = "in the morning"
+    elif dt.hour < 17:
+        period = "in the afternoon"
+    else:
+        period = "in the evening"
+    return f"{dt.strftime('%A, %B %-d')} at {clock} {period}"
 
 
 async def check_availability(
