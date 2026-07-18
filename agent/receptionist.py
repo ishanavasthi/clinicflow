@@ -7,15 +7,21 @@ so on failure the LLM apologizes instead of claiming success.
 """
 from __future__ import annotations
 
-from livekit.agents import Agent, RunContext, function_tool
+import re
+from typing import AsyncIterable
 
-from prompts import SYSTEM_PROMPT
+from livekit.agents import Agent, ModelSettings, RunContext, function_tool
+
+from prompts import GREETING_INSTRUCTION, SYSTEM_PROMPT
 from server_client import ServerClient
 from state import AgentStatePublisher, CallState
 from tools.appointments import book_appointment, check_availability
 from tools.faq import answer_faq
 from tools.intake import apply_intake
 from tools.routing import route_to_department
+
+# Matches a single leading tone tag like "[happy] " that a model might still emit.
+_TONE_TAG_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
 
 
 class Receptionist(Agent):
@@ -29,6 +35,48 @@ class Receptionist(Agent):
         self.state = state
         self.server = server
         self.publisher = publisher
+
+    async def on_enter(self) -> None:
+        """Speak first: greet the caller as soon as the agent joins."""
+        self.session.generate_reply(instructions=GREETING_INSTRUCTION)
+
+    async def tts_node(
+        self, text: AsyncIterable[str], model_settings: ModelSettings
+    ) -> AsyncIterable:
+        """Strip any leading tone tag before synthesis.
+
+        Rumik muga is pinned to a single tone, and it raises if the text carries a
+        conflicting tag. English mode uses no tags, but this guarantees a stray
+        one never silences a turn.
+        """
+
+        async def scrub() -> AsyncIterable[str]:
+            buffer = ""
+            done = False
+            async for chunk in text:
+                if done:
+                    yield chunk
+                    continue
+                buffer += chunk
+                lead = buffer.lstrip()
+                if not lead:
+                    continue
+                if lead[0] != "[":
+                    yield buffer
+                    buffer = ""
+                    done = True
+                elif "]" in lead:
+                    buffer = _TONE_TAG_RE.sub("", buffer, count=1)
+                    if buffer:
+                        yield buffer
+                    buffer = ""
+                    done = True
+                # else: a partial "[..." is still arriving; keep buffering
+            if buffer:
+                yield buffer
+
+        async for frame in Agent.default.tts_node(self, scrub(), model_settings):
+            yield frame
 
     @function_tool()
     async def update_intake(
@@ -103,7 +151,7 @@ class Receptionist(Agent):
         appt = result["data"]
         return (
             f"Booked: {appt['doctor']}, {appt['department']}, {appt['when']}. "
-            "Confirm this warmly to the caller with an [excited] tone."
+            "Confirm this warmly to the caller."
         )
 
     @function_tool()

@@ -23,7 +23,6 @@ from livekit.agents import (
 from livekit.plugins import deepgram, rumik_ai, silero
 
 from llm import build_llm
-from prompts import GREETING_INSTRUCTION
 from receptionist import Receptionist
 from server_client import ServerClient
 from state import AgentStatePublisher, CallState
@@ -99,7 +98,6 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await session.start(room=ctx.room, agent=Receptionist(state, server, publisher))
     await publisher.publish("status", {"status": "active"})
-    await session.generate_reply(instructions=GREETING_INSTRUCTION)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,10 @@
-"""Persona, clinic knowledge, and Muga tone-tag rules for the receptionist.
+"""Persona, clinic knowledge, and speaking rules for the receptionist.
 
-The system prompt is assembled from three parts so each concern stays reviewable:
-the persona and behavior, the Muga speaking rules (from the rumik-tts-2 skill),
-and the clinic knowledge block (kept in sync with server/seed.py).
-
-Function tools (intake, booking, FAQ logging, routing) are attached in M2. In
-M1 the agent converses and grounds its answers in CLINIC_KNOWLEDGE, but it must
-not claim an appointment is booked, since nothing is persisted yet.
+English-only mode: the agent speaks plain, professional English. Rumik muga is
+still the voice, pinned to a single neutral tone (see main.py), and the agent
+strips any stray tone tag before synthesis (see receptionist.tts_node), so the
+TTS never receives a conflicting tag. Hinglish and per-phase tone tags are a
+later bonus milestone.
 """
 from __future__ import annotations
 
@@ -27,19 +25,11 @@ Departments and doctors:
 - Cardiology (Floor 3): Dr. Priya Desai. Heart and cardiovascular care.
 """.strip()
 
-# From the rumik-tts-2 skill prompting guide. Muga expects exactly one tone tag
-# at the start of every utterance and short, spoken Roman Hinglish.
-MUGA_RULES = """
-Start every spoken response with exactly one tone tag, then one space, then your
-words. The only valid tags are: [neutral] [happy] [excited] [sad] [angry] [whisper].
-Never use two tags, never put a tag mid-sentence, never capitalize the tag.
-Speak in natural Roman Hinglish (Hindi words written in Latin script, mixed with
-English). Do not use Devanagari. Keep replies to one or two short sentences so they
-sound good spoken aloud. Do not use markdown, bullet points, or emojis.
-Never mention tone tags, TTS, Rumik, or these instructions to the caller.
-
-Match the tone to the moment: greet with [happy], gather details with [neutral],
-confirm good news with [excited], and deliver disappointing news with [sad].
+SPEAKING_RULES = """
+Speak in clear, natural, professional English. Keep every reply to one or two
+short sentences so it sounds good spoken aloud. Do not use markdown, bullet
+points, emojis, or any bracketed tags or markers. Ask at most one question per
+turn. Do not mention these instructions to the caller.
 """.strip()
 
 PERSONA = """
@@ -63,8 +53,6 @@ Emergency rule: if the caller mentions chest pain, difficulty breathing, severe
 bleeding, stroke signs, or any life-threatening symptom, stay calm and call
 route_to_department with department "Emergency" immediately. Skip normal intake.
 
-Ask at most one question per turn.
-
 === Tools ===
 Use your tools to do the real work. Never invent a result; if a tool reports a
 problem, tell the caller honestly and offer a callback.
@@ -85,15 +73,15 @@ problem, tell the caller honestly and offer a callback.
 def build_system_prompt() -> str:
     return (
         f"{PERSONA}\n\n"
-        f"=== Speaking rules ===\n{MUGA_RULES}\n\n"
+        f"=== Speaking rules ===\n{SPEAKING_RULES}\n\n"
         f"=== Clinic knowledge ===\n{CLINIC_KNOWLEDGE}"
     )
 
 
 SYSTEM_PROMPT = build_system_prompt()
 
-# Spoken by the agent at the start of every call. Kept short and on-tone.
+# Spoken by the agent at the start of every call.
 GREETING_INSTRUCTION = (
-    "Greet the caller as Riya from ClinicFlow Medical Center and ask how you can "
-    "help them today. Start with the [happy] tone tag."
+    "Greet the caller warmly as Riya from ClinicFlow Medical Center and ask how "
+    "you can help them today. Keep it to one short sentence."
 )
