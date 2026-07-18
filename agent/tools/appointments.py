@@ -91,4 +91,17 @@ async def book_appointment(
     appointment["when"] = format_slot_time(appointment["start"])
     state.booking = appointment
     await publisher.publish("booking", {"phase": "confirmed", "appointment": appointment})
+
+    # A booking directs the caller to that appointment's department, so light up
+    # the routing switchboard for it. The model does not reliably call
+    # route_to_department after booking, so we derive the routing here instead of
+    # leaving the panel blank. A booking is never an emergency (those skip intake).
+    department = appointment.get("department")
+    if department:
+        state.routed_department = department
+        await publisher.publish(
+            "routing",
+            {"department": department, "reason": reason, "emergency": False},
+        )
+
     return {"ok": True, "data": appointment}
