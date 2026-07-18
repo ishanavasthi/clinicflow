@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import { useTranscriptions } from "@livekit/components-react";
 import { useCallStore } from "@/stores/callStore";
 
@@ -17,50 +18,68 @@ export function TranscriptFeed() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [transcriptions]);
 
   if (transcriptions.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
-        The live transcript appears here once the caller and receptionist start
-        talking.
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+        <span className="flex h-2.5 w-2.5">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary/60" />
+        </span>
+        <p className="max-w-xs text-sm text-muted-foreground">
+          Listening. The live transcript appears here as the caller and Riya
+          start talking.
+        </p>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="flex h-full flex-col gap-3 overflow-y-auto p-4">
+    <div
+      ref={scrollRef}
+      className="flex h-full flex-col gap-3.5 overflow-y-auto scroll-thin p-4"
+    >
       {transcriptions.map((t, i) => {
         const isCaller = t.participantInfo.identity === callerIdentity;
+        const isLast = i === transcriptions.length - 1;
         const { tone, body } = isCaller
           ? { tone: null, body: t.text }
           : splitTone(t.text);
         return (
-          <div
+          <motion.div
             key={i}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
             className={`flex flex-col gap-1 ${isCaller ? "items-end" : "items-start"}`}
           >
             <div className="flex items-center gap-2 px-1">
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="eyebrow !text-[10px]">
                 {isCaller ? "Caller" : "Riya"}
               </span>
               {tone && (
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                <span className="rounded bg-primary/12 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary">
                   {tone}
                 </span>
               )}
             </div>
             <div
-              className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${
+              className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
                 isCaller
                   ? "rounded-br-sm bg-primary text-primary-foreground"
-                  : "rounded-bl-sm bg-muted text-foreground"
+                  : "rounded-bl-sm border border-border bg-elevated text-foreground"
               }`}
             >
               {body || <span className="opacity-50">...</span>}
+              {isLast && !isCaller && (
+                <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse bg-primary" />
+              )}
             </div>
-          </div>
+          </motion.div>
         );
       })}
     </div>

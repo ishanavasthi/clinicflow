@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { useCallStore } from "@/stores/callStore";
 
@@ -14,36 +15,57 @@ const FIELDS: { key: string; label: string }[] = [
 export function IntakePanel() {
   const intake = useCallStore((s) => s.intake);
   const collected = FIELDS.filter((f) => intake[f.key]).length;
+  const pct = Math.round((collected / FIELDS.length) * 100);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Patient intake</h3>
-        <span className="text-xs text-muted-foreground">
-          {collected}/{FIELDS.length}
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {collected} / {FIELDS.length} collected
         </span>
+        <div className="h-1 w-24 overflow-hidden rounded-full bg-muted">
+          <motion.div
+            className="h-full rounded-full bg-primary"
+            initial={false}
+            animate={{ width: `${pct}%` }}
+            transition={{ type: "spring", stiffness: 200, damping: 26 }}
+          />
+        </div>
       </div>
-      <ul className="flex flex-col gap-2">
+
+      <ul className="flex flex-col gap-2.5">
         {FIELDS.map((field) => {
           const value = intake[field.key];
           const done = Boolean(value);
           return (
             <li key={field.key} className="flex items-start gap-2.5">
               <span
-                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+                className={`mt-0.5 flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full transition-colors ${
                   done
-                    ? "bg-emerald-500/20 text-emerald-400"
+                    ? "bg-success/20 text-success"
                     : "border border-border bg-muted"
                 }`}
               >
-                {done && <Check className="h-2.5 w-2.5" />}
+                <AnimatePresence>
+                  {done && (
+                    <motion.span
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                    >
+                      <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </span>
               <div className="flex min-w-0 flex-col">
-                <span className="text-xs text-muted-foreground">{field.label}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {field.label}
+                </span>
                 <span
-                  className={`truncate text-sm ${done ? "text-foreground" : "text-muted-foreground/50"}`}
+                  className={`truncate text-sm ${done ? "text-foreground" : "text-muted-foreground/40"}`}
                 >
-                  {value ?? "Waiting..."}
+                  {value ?? "Waiting"}
                 </span>
               </div>
             </li>

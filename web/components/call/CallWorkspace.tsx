@@ -1,12 +1,23 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { RoomAudioRenderer } from "@livekit/components-react";
-import { Card } from "@/components/ui/card";
+import {
+  CalendarClock,
+  ListTree,
+  MessagesSquare,
+  Split,
+  UserRound,
+} from "lucide-react";
+import { Panel } from "@/components/ui/Panel";
+import { stagger } from "@/lib/motion";
 import { useAgentState } from "@/hooks/useAgentState";
+import { AgentAudioVisualizer } from "@/components/call/AudioVisualizer";
+import { CallTimer } from "@/components/call/CallTimer";
 import { TranscriptFeed } from "@/components/transcript/TranscriptFeed";
 import { IntakePanel } from "@/components/patient/IntakePanel";
 import { AppointmentPanel } from "@/components/appointments/AppointmentPanel";
-import { RoutingPanel } from "@/components/routing/RoutingPanel";
+import { DepartmentFlow } from "@/components/routing/DepartmentFlow";
 import { TimelinePanel } from "@/components/timeline/TimelinePanel";
 
 /**
@@ -18,36 +29,59 @@ export function CallWorkspace() {
   useAgentState();
 
   return (
-    <div className="grid flex-1 gap-4 lg:grid-cols-3">
+    <motion.div
+      variants={stagger}
+      initial="hidden"
+      animate="show"
+      className="grid flex-1 gap-4 lg:grid-cols-12"
+    >
       <RoomAudioRenderer />
 
       {/* Column A: the call */}
-      <Card className="flex max-h-[600px] flex-col overflow-hidden p-0 lg:col-span-1">
-        <div className="border-b border-border px-4 py-3">
-          <h3 className="text-sm font-medium">Live transcript</h3>
+      <Panel
+        label="Live call"
+        icon={<MessagesSquare className="h-3.5 w-3.5" />}
+        className="lg:col-span-5"
+        bodyClassName="p-0"
+        action={
+          <div className="flex items-center gap-3">
+            <AgentAudioVisualizer />
+            <CallTimer />
+          </div>
+        }
+      >
+        <div className="h-[560px]">
+          <TranscriptFeed />
         </div>
-        <TranscriptFeed />
-      </Card>
+      </Panel>
 
       {/* Column B: the patient */}
-      <div className="flex flex-col gap-4 lg:col-span-1">
-        <Card className="p-4">
+      <div className="flex flex-col gap-4 lg:col-span-4">
+        <Panel label="Patient intake" icon={<UserRound className="h-3.5 w-3.5" />}>
           <IntakePanel />
-        </Card>
-        <Card className="p-4">
+        </Panel>
+        <Panel
+          label="Appointment"
+          icon={<CalendarClock className="h-3.5 w-3.5" />}
+        >
           <AppointmentPanel />
-        </Card>
+        </Panel>
       </div>
 
       {/* Column C: the operation */}
-      <div className="flex flex-col gap-4 lg:col-span-1">
-        <Card className="p-4">
-          <RoutingPanel />
-        </Card>
-        <Card className="flex max-h-[320px] flex-col p-4">
+      <div className="flex flex-col gap-4 lg:col-span-3">
+        <Panel label="Routing" icon={<Split className="h-3.5 w-3.5" />}>
+          <DepartmentFlow />
+        </Panel>
+        <Panel
+          label="Timeline"
+          icon={<ListTree className="h-3.5 w-3.5" />}
+          className="max-h-[300px]"
+          scroll
+        >
           <TimelinePanel />
-        </Card>
+        </Panel>
       </div>
-    </div>
+    </motion.div>
   );
 }

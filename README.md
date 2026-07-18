@@ -57,7 +57,7 @@ make web            # dashboard on http://localhost:3000
 
 Reseed the database at any time with `make seed`.
 
-## Current status: M3 realtime dashboard complete
+## Current status: M4 dashboard polish complete
 
 - `server/`: token endpoint (caller/observer grants), seeded EHR, and full
   persistence: patient create/update, slot availability, appointment booking
@@ -65,10 +65,11 @@ Reseed the database at any time with `make seed`.
 - `agent/`: full voice pipeline (silero VAD, Deepgram nova-3, gpt-oss-120b on
   Groq, Rumik muga TTS) plus the five function tools. Every tool persists to the
   server and publishes an agent-state event to the room data channel.
-- `web/`: the dashboard mirrors a live call in real time. It joins the LiveKit
-  room, plays the agent's voice, streams the transcript (`useTranscriptions`),
-  and folds agent-state events (`useDataChannel`) into panels for intake,
-  availability/booking, department routing, and the conversation timeline.
+- `web/`: a polished "operator console" dashboard that mirrors a live call in
+  real time. Cool-ink clinical theme with a medical-teal accent, icon sidebar and
+  top bar, a 3-column workspace (live transcript with tone chips and a streaming
+  caret, patient intake, availability/booking, a DepartmentFlow routing
+  switchboard, and the conversation timeline), and Framer Motion throughout.
 
 Test the voice loop locally against your mic without a room:
 
