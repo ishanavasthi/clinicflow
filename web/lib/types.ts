@@ -25,9 +25,55 @@ export type AgentStateType =
 
 export interface AgentStateEvent<P = Record<string, unknown>> {
   type: AgentStateType;
-  call_id: string;
+  call_id: string | null;
   ts: number;
   payload: P;
+}
+
+/**
+ * Concrete payload shapes per event type, mirrored from agent/state.py and the
+ * agent/tools/ helpers. The dashboard (M3) narrows on `type` to pick a payload.
+ */
+export interface StatusPayload {
+  status: "active" | "ended" | string;
+}
+
+export interface IntakeUpdatePayload {
+  field: string;
+  value: string;
+  intake: Record<string, string>;
+}
+
+export interface SlotOption {
+  slot_id: number;
+  doctor: string;
+  when: string;
+  start: string;
+}
+
+export interface BookedAppointment {
+  appointment_id: number;
+  patient: string;
+  doctor: string;
+  department: string;
+  start: string;
+  when: string;
+  reason: string;
+}
+
+export type BookingPayload =
+  | { phase: "availability"; department: string; slots: SlotOption[] }
+  | { phase: "confirmed"; appointment: BookedAppointment };
+
+export interface RoutingPayload {
+  department: string;
+  reason: string;
+  emergency: boolean;
+}
+
+export interface FaqPayload {
+  topic: string;
+  raw?: string;
 }
 
 export interface TokenResponse {

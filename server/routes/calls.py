@@ -1,10 +1,12 @@
 """Call records and their timeline events.
 
-M0 provides create/read so a caller session can register a room. Recording
-upload and richer event streaming are fleshed out in later milestones.
+The agent creates a call when it joins a room, appends timeline events as tools
+fire (a durable copy of what it also streams to the dashboard over the data
+channel), and marks the call ended on hang-up.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,6 +21,16 @@ router = APIRouter(prefix="/calls", tags=["calls"])
 
 class CallCreate(BaseModel):
     room: str
+
+
+class EventCreate(BaseModel):
+    type: str
+    payload: dict = {}
+
+
+class CallEnd(BaseModel):
+    routed_department: Optional[str] = None
+    recording_url: Optional[str] = None
 
 
 @router.post("", response_model=Call)
@@ -43,6 +55,21 @@ def get_call(call_id: int, session: Session = Depends(get_session)) -> Call:
     return call
 
 
+@router.post("/{call_id}/events", response_model=TimelineEvent)
+def add_event(
+    call_id: int,
+    body: EventCreate,
+    session: Session = Depends(get_session),
+) -> TimelineEvent:
+    if session.get(Call, call_id) is None:
+        raise HTTPException(status_code=404, detail="Call not found")
+    event = TimelineEvent(call_id=call_id, type=body.type, payload=body.payload)
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return event
+
+
 @router.get("/{call_id}/events", response_model=list[TimelineEvent])
 def list_call_events(
     call_id: int, session: Session = Depends(get_session)
@@ -52,3 +79,24 @@ def list_call_events(
         .where(TimelineEvent.call_id == call_id)
         .order_by(TimelineEvent.ts)
     ).all()
+
+
+@router.post("/{call_id}/end", response_model=Call)
+def end_call(
+    call_id: int,
+    body: CallEnd,
+    session: Session = Depends(get_session),
+) -> Call:
+    call = session.get(Call, call_id)
+    if call is None:
+        raise HTTPException(status_code=404, detail="Call not found")
+    call.status = "ended"
+    call.ended_at = datetime.utcnow()
+    if body.routed_department is not None:
+        call.routed_department = body.routed_department
+    if body.recording_url is not None:
+        call.recording_url = body.recording_url
+    session.add(call)
+    session.commit()
+    session.refresh(call)
+    return call

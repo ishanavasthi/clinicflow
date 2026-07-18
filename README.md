@@ -57,21 +57,29 @@ make web            # dashboard on http://localhost:3000
 
 Reseed the database at any time with `make seed`.
 
-## Current status: M1 voice loop complete
+## Current status: M2 tools and persistence complete
 
-- `server/`: token endpoint (caller/observer grants), seeded departments,
-  doctors, slots, FAQs, and patients, plus read CRUD. Verified minting valid
-  LiveKit JWTs and serving seed data.
-- `agent/`: full AgentSession voice pipeline (silero VAD, Deepgram nova-3,
-  gpt-oss-120b on Groq, Rumik muga TTS) with the receptionist persona and Muga
-  tone-tag rules. Function tools and dashboard state publishing land in M2.
+- `server/`: token endpoint (caller/observer grants), seeded EHR, and full
+  persistence: patient create/update, slot availability, appointment booking
+  (with double-book protection), and call timeline events.
+- `agent/`: full voice pipeline (silero VAD, Deepgram nova-3, gpt-oss-120b on
+  Groq, Rumik muga TTS) plus the five function tools (intake, availability,
+  booking, FAQ logging, routing). Every tool persists to the server and
+  publishes an agent-state event to the room data channel for the dashboard.
 - `web/`: Next.js 16 + Tailwind v4 + shadcn/ui dashboard shell with a working
-  call simulator that mints a token and joins a LiveKit room.
+  call simulator; the live dashboard that consumes agent-state events is M3.
 
 Test the voice loop locally against your mic without a room:
 
 ```bash
 cd agent && .venv/bin/python main.py console
+```
+
+Verify the tool + persistence path end to end (needs the server running):
+
+```bash
+cd agent && CLINICFLOW_API_URL=http://localhost:8000 \
+  .venv/bin/python scripts/scripted_call_test.py
 ```
 
 See `.plans/` (local only) for the full milestone plan and interview notes.
