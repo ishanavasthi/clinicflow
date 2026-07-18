@@ -27,7 +27,7 @@ def build_llm() -> openai.LLM:
         api_key=api_key,
         # Low temperature keeps the model deterministic and stops it from
         # role-playing the caller's side of the conversation.
-        temperature=0.3,
+        temperature=0.2,
         # One tool at a time makes the intake flow controllable and prevents the
         # model from firing several fabricated update_intake calls at once.
         parallel_tool_calls=False,

@@ -89,9 +89,10 @@ async def entrypoint(ctx: JobContext) -> None:
         # does not falsely interrupt itself. Use the mute button for longer pauses.
         min_endpointing_delay=0.8,
         min_interruption_words=2,
-        # One tool step per caller turn: record what they said, then speak and
-        # wait. Prevents the model chaining intake -> availability in one breath.
-        max_tool_steps=1,
+        # Allow a couple of tool calls per turn (e.g. record a symptom given
+        # earlier plus the age just given) without the framework forcing an extra
+        # response, but keep it low so the model cannot chain far ahead.
+        max_tool_steps=4,
     )
 
     async def on_shutdown() -> None:

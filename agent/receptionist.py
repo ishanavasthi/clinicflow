@@ -25,6 +25,17 @@ from tools.routing import route_to_department
 _TONE_TAG_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
 
 
+def _clean_reply(text: str) -> str:
+    """Prepare the model's reply for speech: drop any leading tone tag, and keep
+    at most one question so a rambling turn cannot ask two things (or rephrase the
+    same question) at once."""
+    text = _TONE_TAG_RE.sub("", text, count=1).strip()
+    first = text.find("?")
+    if first != -1 and "?" in text[first + 1 :]:
+        text = text[: first + 1].strip()
+    return text
+
+
 class Receptionist(Agent):
     def __init__(
         self,
@@ -53,39 +64,22 @@ class Receptionist(Agent):
     async def tts_node(
         self, text: AsyncIterable[str], model_settings: ModelSettings
     ) -> AsyncIterable:
-        """Strip any leading tone tag before synthesis.
+        """Clean the model's reply before synthesis.
 
-        Rumik muga is pinned to a single tone, and it raises if the text carries a
-        conflicting tag. English mode uses no tags, but this guarantees a stray
-        one never silences a turn.
+        Strips any stray tone tag (Rumik muga is pinned to one tone and raises on a
+        conflicting tag) and keeps at most one question. muga aggregates the full
+        response before speaking anyway, so buffering the text here costs nothing.
         """
+        full = ""
+        async for chunk in text:
+            full += chunk
+        cleaned = _clean_reply(full)
 
-        async def scrub() -> AsyncIterable[str]:
-            buffer = ""
-            done = False
-            async for chunk in text:
-                if done:
-                    yield chunk
-                    continue
-                buffer += chunk
-                lead = buffer.lstrip()
-                if not lead:
-                    continue
-                if lead[0] != "[":
-                    yield buffer
-                    buffer = ""
-                    done = True
-                elif "]" in lead:
-                    buffer = _TONE_TAG_RE.sub("", buffer, count=1)
-                    if buffer:
-                        yield buffer
-                    buffer = ""
-                    done = True
-                # else: a partial "[..." is still arriving; keep buffering
-            if buffer:
-                yield buffer
+        async def single() -> AsyncIterable[str]:
+            if cleaned:
+                yield cleaned
 
-        async for frame in Agent.default.tts_node(self, scrub(), model_settings):
+        async for frame in Agent.default.tts_node(self, single(), model_settings):
             yield frame
 
     @function_tool()
