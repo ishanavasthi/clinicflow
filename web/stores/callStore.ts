@@ -34,6 +34,7 @@ interface CallState {
   identity: string | null;
   callerIdentity: string | null;
   error: string | null;
+  muted: boolean;
 
   // Live call data, driven by agent-state events
   intake: Record<string, string>;
@@ -47,6 +48,7 @@ interface CallState {
   setStatus: (status: CallStatus) => void;
   setConnection: (room: Room, roomName: string, identity: string) => void;
   setError: (error: string | null) => void;
+  setMuted: (muted: boolean) => void;
   applyEvent: (event: AgentStateEvent) => void;
   reset: () => void;
 }
@@ -67,6 +69,7 @@ export const useCallStore = create<CallState>((set) => ({
   identity: null,
   callerIdentity: null,
   error: null,
+  muted: false,
   ...INITIAL_DATA,
 
   setStatus: (status) => set({ status }),
@@ -79,10 +82,13 @@ export const useCallStore = create<CallState>((set) => ({
       callerIdentity: identity,
       status: "active",
       error: null,
+      muted: false,
       ...INITIAL_DATA,
     }),
 
   setError: (error) => set({ error, status: error ? "error" : "idle" }),
+
+  setMuted: (muted) => set({ muted }),
 
   applyEvent: (event) =>
     set((state) => reduceEvent(state, event)),
@@ -95,6 +101,7 @@ export const useCallStore = create<CallState>((set) => ({
       identity: null,
       callerIdentity: null,
       error: null,
+      muted: false,
       ...INITIAL_DATA,
     }),
 }));

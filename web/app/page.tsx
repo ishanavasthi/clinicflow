@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { MotionConfig, motion } from "framer-motion";
 import { RoomContext } from "@livekit/components-react";
 import { toast } from "sonner";
-import { PhoneCall, PhoneOff, Radio } from "lucide-react";
+import { Mic, MicOff, PhoneCall, PhoneOff, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { WallClock } from "@/components/shell/WallClock";
@@ -17,8 +17,18 @@ import { fadeUp, stagger } from "@/lib/motion";
 import type { Department } from "@/lib/types";
 
 export default function Home() {
-  const { status, room, roomName, error, setStatus, setConnection, setError, reset } =
-    useCallStore();
+  const {
+    status,
+    room,
+    roomName,
+    error,
+    muted,
+    setStatus,
+    setConnection,
+    setError,
+    setMuted,
+    reset,
+  } = useCallStore();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [depsError, setDepsError] = useState<string | null>(null);
 
@@ -52,6 +62,15 @@ export default function Home() {
     toast.message("Call ended");
   }
 
+  async function handleToggleMute() {
+    const next = !muted;
+    // Disabling the mic track means the agent hears nothing and simply waits,
+    // which is exactly the "give me time to think" pause.
+    await room?.localParticipant.setMicrophoneEnabled(!next);
+    setMuted(next);
+    toast.message(next ? "Muted. Take your time, Riya will wait." : "Unmuted");
+  }
+
   return (
     <MotionConfig reducedMotion="user">
       <div className="flex h-screen overflow-hidden">
@@ -73,10 +92,26 @@ export default function Home() {
               <WallClock />
               <StatusBadge status={status} />
               {inCall ? (
-                <Button size="sm" variant="destructive" onClick={handleEnd}>
-                  <PhoneOff className="h-4 w-4" />
-                  End call
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleToggleMute}
+                    aria-pressed={muted}
+                    className={muted ? "border-stream/40 text-stream" : ""}
+                  >
+                    {muted ? (
+                      <MicOff className="h-4 w-4" />
+                    ) : (
+                      <Mic className="h-4 w-4" />
+                    )}
+                    {muted ? "Muted" : "Mute"}
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={handleEnd}>
+                    <PhoneOff className="h-4 w-4" />
+                    End call
+                  </Button>
+                </>
               ) : (
                 <Button size="sm" onClick={handleStart} disabled={busy}>
                   <PhoneCall className="h-4 w-4" />
@@ -89,7 +124,16 @@ export default function Home() {
           <main className="min-h-0 flex-1 overflow-y-auto scroll-thin px-6 py-5">
             {inCall && room ? (
               <RoomContext.Provider value={room}>
-                <CallWorkspace />
+                <div className="flex flex-col gap-3">
+                  {muted && (
+                    <div className="flex items-center gap-2 rounded-lg border border-stream/30 bg-stream/10 px-3 py-2 text-xs text-stream">
+                      <MicOff className="h-3.5 w-3.5 shrink-0" />
+                      You are muted. Take your time; the receptionist is waiting
+                      for you to reply. Unmute to answer.
+                    </div>
+                  )}
+                  <CallWorkspace />
+                </div>
               </RoomContext.Provider>
             ) : (
               <IdleView
