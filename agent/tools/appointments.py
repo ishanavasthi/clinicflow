@@ -67,5 +67,6 @@ async def book_appointment(
 
     state.status = "booked"
     appointment["when"] = format_slot_time(appointment["start"])
+    state.booking = appointment
     await publisher.publish("booking", {"phase": "confirmed", "appointment": appointment})
     return {"ok": True, "data": appointment}

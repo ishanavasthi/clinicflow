@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -22,6 +23,7 @@ from livekit.agents import (
 )
 from livekit.plugins import deepgram, rumik_ai, silero
 
+from call_log import write_call_record
 from llm import build_llm
 from receptionist import Receptionist
 from server_client import ServerClient
@@ -75,19 +77,7 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.warning("could not create call record: %s", exc)
 
     publisher = AgentStatePublisher(ctx.room, state, server)
-
-    async def on_shutdown() -> None:
-        if state.call_id is not None:
-            try:
-                await server.end_call(
-                    state.call_id, routed_department=state.routed_department
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("could not end call record: %s", exc)
-        await publisher.publish("status", {"status": "ended"})
-        await server.aclose()
-
-    ctx.add_shutdown_callback(on_shutdown)
+    started_at = datetime.now()
 
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
@@ -103,6 +93,27 @@ async def entrypoint(ctx: JobContext) -> None:
         # wait. Prevents the model chaining intake -> availability in one breath.
         max_tool_steps=1,
     )
+
+    async def on_shutdown() -> None:
+        if state.call_id is not None:
+            try:
+                await server.end_call(
+                    state.call_id, routed_department=state.routed_department
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("could not end call record: %s", exc)
+        # Save the full call (transcript + patient details) to runs/calls/.
+        try:
+            path = write_call_record(
+                state, session.history, started_at, datetime.now()
+            )
+            logger.info("wrote call record %s", path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not write call record: %s", exc)
+        await publisher.publish("status", {"status": "ended"})
+        await server.aclose()
+
+    ctx.add_shutdown_callback(on_shutdown)
 
     await session.start(room=ctx.room, agent=Receptionist(state, server, publisher))
     await publisher.publish("status", {"status": "active"})

@@ -38,6 +38,7 @@ class CallState:
     offered_slots: dict = field(default_factory=dict)  # slot_id -> slot option
     status: str = "active"
     routed_department: Optional[str] = None
+    booking: Optional[dict] = None
 
     def missing_intake(self) -> list[str]:
         return [f for f in INTAKE_FIELDS if f not in self.intake]
