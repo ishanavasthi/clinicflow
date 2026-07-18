@@ -88,7 +88,16 @@ def build_system_prompt() -> str:
 
 SYSTEM_PROMPT = build_system_prompt()
 
-# Spoken by the agent at the start of every call.
+# The fixed greeting spoken at the start of every call. It is cached as audio
+# (agent/audio/greeting.wav) so it plays instantly with no LLM or TTS round trip;
+# the text below is forwarded to the dashboard transcript. If you change this
+# text, regenerate the audio with scripts/generate_cached_audio.py.
+GREETING_TEXT = (
+    "Hi, thanks for calling ClinicFlow Medical Center. This is Riya. "
+    "How can I help you today?"
+)
+
+# Fallback used only if the cached greeting audio is missing.
 GREETING_INSTRUCTION = (
     "Greet the caller warmly as Riya from ClinicFlow Medical Center and ask how "
     "you can help them today. Keep it to one short sentence."

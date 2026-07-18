@@ -12,7 +12,8 @@ from typing import AsyncIterable
 
 from livekit.agents import Agent, ModelSettings, RunContext, function_tool
 
-from prompts import GREETING_INSTRUCTION, SYSTEM_PROMPT
+import cached_audio
+from prompts import GREETING_INSTRUCTION, GREETING_TEXT, SYSTEM_PROMPT
 from server_client import ServerClient
 from state import AgentStatePublisher, CallState
 from tools.appointments import book_appointment, check_availability
@@ -37,8 +38,17 @@ class Receptionist(Agent):
         self.publisher = publisher
 
     async def on_enter(self) -> None:
-        """Speak first: greet the caller as soon as the agent joins."""
-        self.session.generate_reply(instructions=GREETING_INSTRUCTION)
+        """Speak first: greet the caller as soon as the agent joins.
+
+        Plays the pre-generated greeting audio for an instant start (no LLM or TTS
+        round trip), falling back to a live reply only if the cache is missing.
+        """
+        if cached_audio.has("greeting.wav"):
+            await self.session.say(
+                GREETING_TEXT, audio=cached_audio.stream("greeting.wav")
+            )
+        else:
+            self.session.generate_reply(instructions=GREETING_INSTRUCTION)
 
     async def tts_node(
         self, text: AsyncIterable[str], model_settings: ModelSettings

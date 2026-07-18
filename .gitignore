@@ -26,6 +26,9 @@ venv/
 *.sqlite
 *.sqlite3
 *.wav
+# but do commit the small pre-generated phrase cache
+!agent/audio/
+!agent/audio/*.wav
 recordings/
 
 # Local run logs and artifacts (service logs, recordings, transcripts).
