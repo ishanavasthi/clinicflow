@@ -108,7 +108,18 @@ export const useCallStore = create<CallState>((set) => ({
   endCall: () => set({ status: "ended", muted: false }),
 
   applyEvent: (event) =>
-    set((state) => reduceEvent(state, event)),
+    set((state) => {
+      const update = reduceEvent(state, event);
+      // Every event carries the call id in its envelope. Adopt it from the first
+      // event that arrives so a missed "status" event (published the instant the
+      // agent joins, sometimes before this listener attaches) never leaves callId
+      // null, which would silently skip the recording upload at hang-up.
+      if (state.callId == null && update.callId == null && event.call_id != null) {
+        const id = Number(event.call_id);
+        if (!Number.isNaN(id)) return { ...update, callId: id };
+      }
+      return update;
+    }),
 
   reset: () =>
     set({
