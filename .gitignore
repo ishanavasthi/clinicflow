@@ -28,6 +28,11 @@ venv/
 *.wav
 recordings/
 
+# Local run logs and artifacts (service logs, recordings, transcripts).
+# Kept locally for reference across runs; the directory is tracked, contents are not.
+/runs/*
+!/runs/.gitkeep
+
 # Node / Next.js
 node_modules/
 .next/

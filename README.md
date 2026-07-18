@@ -57,6 +57,12 @@ make web            # dashboard on http://localhost:3000
 
 Reseed the database at any time with `make seed`.
 
+## Run logs
+
+Local service logs and run artifacts (and, later, call recordings and
+transcripts) are written to `runs/` so they can be reviewed after a session.
+The directory is tracked but its contents are gitignored.
+
 ## Current status: M4 dashboard polish complete
 
 - `server/`: token endpoint (caller/observer grants), seeded EHR, and full
