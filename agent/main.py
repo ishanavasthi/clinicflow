@@ -94,6 +94,11 @@ async def entrypoint(ctx: JobContext) -> None:
         stt=deepgram.STT(model="nova-3"),
         llm=build_llm(),
         tts=rumik_ai.TTS(model="muga", tone="neutral"),
+        # Be more patient so the agent waits for the caller to finish instead of
+        # jumping in during a natural pause, and ignore stray one-word noise so it
+        # does not falsely interrupt itself. Use the mute button for longer pauses.
+        min_endpointing_delay=0.8,
+        min_interruption_words=2,
     )
 
     await session.start(room=ctx.room, agent=Receptionist(state, server, publisher))
