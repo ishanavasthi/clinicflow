@@ -99,6 +99,26 @@ def _normalize_times(text: str) -> str:
     return text
 
 
+# Single-digit words, so we can tell what digits the caller actually spoke and
+# reject a fabricated phone number the model invents (a recurring failure).
+_DIGIT_WORDS = {
+    "zero": "0", "oh": "0", "o": "0", "nought": "0", "one": "1", "two": "2",
+    "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
+    "eight": "8", "nine": "9",
+}
+
+
+def _spoken_digits(text: str) -> str:
+    """The digits the caller actually spoke, from literal digits and digit words."""
+    out = []
+    for tok in re.findall(r"\d|[a-z]+", (text or "").lower()):
+        if tok.isdigit():
+            out.append(tok)
+        elif tok in _DIGIT_WORDS:
+            out.append(_DIGIT_WORDS[tok])
+    return "".join(out)
+
+
 class Receptionist(Agent):
     def __init__(
         self,
@@ -110,6 +130,26 @@ class Receptionist(Agent):
         self.state = state
         self.server = server
         self.publisher = publisher
+
+    def _recent_user_text(self, turns: int = 3) -> str:
+        """The caller's last few messages, used to verify a phone was really said."""
+        session = getattr(self, "session", None)
+        items = getattr(getattr(session, "history", None), "items", []) or []
+        texts: list[str] = []
+        for item in reversed(list(items)):
+            if getattr(item, "role", None) != "user":
+                continue
+            content = getattr(item, "content", None)
+            text = (
+                content
+                if isinstance(content, str)
+                else " ".join(p for p in (content or []) if isinstance(p, str))
+            )
+            if text.strip():
+                texts.append(text)
+                if len(texts) >= turns:
+                    break
+        return " ".join(reversed(texts))
 
     async def on_enter(self) -> None:
         """Speak first: greet the caller as soon as the agent joins.
@@ -177,6 +217,17 @@ class Receptionist(Agent):
             field: one of name, age, phone, symptoms.
             value: the value the caller gave.
         """
+        # Guard against a fabricated phone: only record digits the caller actually
+        # spoke recently. Catches the model inventing a placeholder number.
+        if field.strip().lower() == "phone":
+            recorded = re.sub(r"\D", "", value)
+            spoken = _spoken_digits(self._recent_user_text())
+            if len(recorded) >= 7 and recorded not in spoken:
+                return (
+                    "The caller has not actually given their phone number yet. Ask "
+                    "for their 10-digit number and wait for them to say it; never "
+                    "guess or use an example number."
+                )
         result = await apply_intake(
             self.state, self.server, self.publisher, field, value
         )
