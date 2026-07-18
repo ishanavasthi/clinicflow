@@ -24,15 +24,25 @@ from tools.routing import route_to_department
 # Matches a single leading tone tag like "[happy] " that a model might still emit.
 _TONE_TAG_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
 
+# Insert a space after sentence/clause punctuation when it is run into the next
+# word ("please?Could" -> "please? Could"), so muga hears a boundary and pauses.
+# The letter-only lookahead leaves numbers intact (9.30, 9:30 stay as-is).
+_PUNCT_SPACE_RE = re.compile(r"([.,!?;:])(?=[A-Za-z])")
+
 
 def _clean_reply(text: str) -> str:
-    """Prepare the model's reply for speech: drop any leading tone tag, and keep
-    at most one question so a rambling turn cannot ask two things (or rephrase the
-    same question) at once."""
+    """Prepare the model's reply for both speech and the transcript:
+
+    - drop any stray leading tone tag (muga is pinned to one tone),
+    - keep at most one question so a rambling turn cannot ask two things,
+    - normalize punctuation spacing so muga pauses naturally at full stops and
+      commas. Delivery is neutral and accurate; there is no emotion handling.
+    """
     text = _TONE_TAG_RE.sub("", text, count=1).strip()
     first = text.find("?")
     if first != -1 and "?" in text[first + 1 :]:
         text = text[: first + 1].strip()
+    text = _PUNCT_SPACE_RE.sub(r"\1 ", text)
     return text
 
 
@@ -171,7 +181,7 @@ class Receptionist(Agent):
         appt = result["data"]
         return (
             f"Booked: {appt['doctor']}, {appt['department']}, {appt['when']}. "
-            "Confirm this warmly to the caller."
+            "Confirm the doctor, department, and time to the caller."
         )
 
     @function_tool()
@@ -202,8 +212,8 @@ class Receptionist(Agent):
             return f"Could not route ({result['error']})."
         if result["data"]["emergency"]:
             return (
-                "Routed to Emergency. Tell the caller calmly and urgently that you "
-                "are connecting them to Emergency right now."
+                "Routed to Emergency. Tell the caller you are connecting them to "
+                "Emergency right now."
             )
         return (
             f"Routed to {result['data']['department']}. Tell the caller you are "
