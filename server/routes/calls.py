@@ -36,6 +36,19 @@ _EXT_BY_TYPE = {
 _TYPE_BY_EXT = {v: k for k, v in _EXT_BY_TYPE.items()}
 
 
+def _recording_url_for(call_id: int) -> Optional[str]:
+    """The recording URL if a take exists on disk, else None.
+
+    The file on disk is the source of truth: the upload and the agent's end_call
+    can race on the recording_url column, so we derive it from the file instead of
+    trusting a value that a concurrent end_call may have overwritten with a stale
+    snapshot.
+    """
+    if glob.glob(os.path.join(RECORDINGS_DIR, f"call-{call_id}.*")):
+        return f"/calls/{call_id}/recording"
+    return None
+
+
 class CallCreate(BaseModel):
     room: str
 
@@ -74,7 +87,7 @@ def list_calls(session: Session = Depends(get_session)) -> list[dict]:
             "started_at": c.started_at,
             "ended_at": c.ended_at,
             "routed_department": c.routed_department,
-            "recording_url": c.recording_url,
+            "recording_url": _recording_url_for(c.id) or c.recording_url,
             "summary": c.summary or {},
         }
         for c in calls
@@ -86,6 +99,8 @@ def get_call(call_id: int, session: Session = Depends(get_session)) -> Call:
     call = session.get(Call, call_id)
     if call is None:
         raise HTTPException(status_code=404, detail="Call not found")
+    # Derive from disk so a recording that raced with end_call still shows.
+    call.recording_url = _recording_url_for(call_id) or call.recording_url
     return call
 
 
