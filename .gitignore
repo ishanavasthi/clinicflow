@@ -1,6 +1,40 @@
-# Local development
+# Local planning and instruction artifacts (never commit)
 .claude/
 .plans/
 CLAUDE.md
 PLAN.md
 session-context.jsonl
+
+# Secrets
+.env
+.env.local
+*.env
+!.env.example
+!.env.local.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Databases and recordings
+*.db
+*.sqlite
+*.sqlite3
+*.wav
+recordings/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+*.log
