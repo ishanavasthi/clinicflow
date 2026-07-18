@@ -48,7 +48,12 @@ async def apply_intake(
 
     await publisher.publish(
         "intake_update",
-        {"field": field, "value": value, "intake": state.intake},
+        {
+            "field": field,
+            "value": value,
+            "intake": state.intake,
+            "patient_id": state.patient_id,
+        },
     )
     return {
         "ok": True,

@@ -38,3 +38,14 @@ export function fetchDepartments(): Promise<Department[]> {
 export function fetchFaqs(): Promise<FAQ[]> {
   return request<FAQ[]>("/faqs");
 }
+
+/** Patch a patient record with edited intake fields. */
+export function updatePatient(
+  patientId: number,
+  fields: Record<string, string>,
+): Promise<unknown> {
+  return request(`/patients/${patientId}`, {
+    method: "PATCH",
+    body: JSON.stringify(fields),
+  });
+}

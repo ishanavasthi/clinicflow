@@ -42,6 +42,7 @@ export interface IntakeUpdatePayload {
   field: string;
   value: string;
   intake: Record<string, string>;
+  patient_id?: number | null;
 }
 
 export interface SlotOption {

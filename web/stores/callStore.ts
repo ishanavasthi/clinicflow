@@ -38,6 +38,7 @@ interface CallState {
 
   // Live call data, driven by agent-state events
   intake: Record<string, string>;
+  patientId: number | null;
   offeredSlots: SlotOption[];
   offeredDepartment: string | null;
   booking: BookedAppointment | null;
@@ -49,12 +50,14 @@ interface CallState {
   setConnection: (room: Room, roomName: string, identity: string) => void;
   setError: (error: string | null) => void;
   setMuted: (muted: boolean) => void;
+  setIntakeFields: (fields: Record<string, string>) => void;
   applyEvent: (event: AgentStateEvent) => void;
   reset: () => void;
 }
 
 const INITIAL_DATA = {
   intake: {},
+  patientId: null as number | null,
   offeredSlots: [] as SlotOption[],
   offeredDepartment: null as string | null,
   booking: null as BookedAppointment | null,
@@ -89,6 +92,9 @@ export const useCallStore = create<CallState>((set) => ({
   setError: (error) => set({ error, status: error ? "error" : "idle" }),
 
   setMuted: (muted) => set({ muted }),
+
+  setIntakeFields: (fields) =>
+    set((state) => ({ intake: { ...state.intake, ...fields } })),
 
   applyEvent: (event) =>
     set((state) => reduceEvent(state, event)),
@@ -140,6 +146,7 @@ function reduceEvent(
       const payload = event.payload as unknown as IntakeUpdatePayload;
       return {
         intake: { ...state.intake, ...payload.intake },
+        patientId: payload.patient_id ?? state.patientId,
         timeline: pushTimeline(state, {
           type: "intake_update",
           ts,
