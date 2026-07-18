@@ -42,12 +42,12 @@ async def main() -> None:
     state = CallState(call_id=call["id"], room_name="call-scripted")
     publisher = AgentStatePublisher(_FakeRoom(published), state, server)
 
-    # 1. Intake, one detail at a time.
+    # 1. Intake, one detail at a time (name, age, phone, symptoms).
     for field, value in [
         ("name", "Priya Sharma"),
-        ("phone", "+1-555-0199"),
+        ("age", "34"),
+        ("phone", "+91 98200 12345"),
         ("symptoms", "knee pain for two weeks"),
-        ("insurance", "Aetna"),
     ]:
         r = await apply_intake(state, server, publisher, field, value)
         assert r["ok"], r

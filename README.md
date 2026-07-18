@@ -2,7 +2,7 @@
 
 An AI Healthcare Receptionist: a real-time voice agent that answers patient
 calls, runs intake, books appointments, answers FAQs, and routes callers to the
-right department, paired with a live SaaS-quality dashboard that mirrors every
+right department, paired with a live, SaaS-quality dashboard that mirrors every
 call as it happens.
 
 ## Architecture
@@ -10,84 +10,92 @@ call as it happens.
 Three deployable units meeting at LiveKit:
 
 ```
-web/     Next.js dashboard: caller pane (mic over WebRTC) + observer dashboard
-server/  FastAPI + SQLite: token minting, seeded EHR, CRUD persistence
-agent/   Python LiveKit worker: VAD -> Deepgram STT -> gpt-oss-120b (Groq) -> Rumik TTS
+web/     Next.js dashboard: call simulator (mic over WebRTC) + live operator console
+server/  FastAPI + SQLite: token minting, seeded EHR, CRUD + recording storage
+agent/   Python LiveKit worker: silero VAD -> Deepgram STT -> gpt-oss-120b (Groq) -> Rumik muga TTS
 ```
 
-The browser plays both roles: a caller pane joins a LiveKit room to simulate an
-incoming call, and the dashboard joins the same room as a hidden observer.
-Everything realtime rides on transport LiveKit already provides (live transcript
-and token-by-token AI text via transcription streams, structured agent-state via
-the data channel), so there is no custom WebSocket server. FastAPI handles
-persistence only and never touches the audio path.
+One LiveKit room per call. The browser both places the "incoming call" (publishes
+the mic) and renders the dashboard off that same connection, because the agent
+forwards transcriptions and structured `agent-state` events to every participant.
+So everything realtime rides on transport LiveKit already provides, with no custom
+WebSocket server. FastAPI handles persistence only and never touches the audio
+path. Intake, availability, booking, FAQ logging, and routing are all LLM function
+tools, so every state change is an auditable tool call that also drives the UI.
+
+## Features
+
+- Real-time bidirectional voice with barge-in; instant cached greeting.
+- Live transcript, patient intake, availability/booking, department-routing
+  switchboard, and a conversation timeline, all updating from the agent's tools.
+- Emergency override: red-flag symptoms skip intake and route to Emergency at once.
+- Call controls: mute/pause (the agent waits), end, and a post-call view with
+  recording playback and an editable patient record.
+- Every call is saved as JSON (transcript + patient details) and, optionally, an
+  audio recording under `runs/`.
 
 ## Prerequisites
 
 - Node 20+ and npm
 - [uv](https://docs.astral.sh/uv/) (manages Python 3.12 for the two Python packages)
-- Accounts/keys: LiveKit Cloud, Rumik, Deepgram, OpenAI
+- API keys: LiveKit Cloud, Rumik, Deepgram, Groq (OpenAI works as an LLM fallback)
 
 ## Setup
 
 ```bash
-make setup          # installs server, agent, and web dependencies
-```
-
-Then create the env files from the examples and fill in your keys:
-
-```bash
+make setup                       # install deps for server, agent, and web
 cp server/.env.example server/.env
 cp agent/.env.example  agent/.env
-cp web/.env.local.example web/.env.local
+cp web/.env.local.example web/.env.local   # fill in your keys
 ```
 
-`LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` must be the same
+`LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` must be the same LiveKit
 project across `server/.env` and `agent/.env`.
 
 ## Run
 
-Each in its own terminal:
-
 ```bash
-make server         # FastAPI on http://localhost:8000 (auto-seeds on first boot)
-make agent          # LiveKit agent worker (voice pipeline lands in M1)
-make web            # dashboard on http://localhost:3000
+make reset      # clean demo state: wipe + reseed the DB, clear recordings
 ```
 
-Reseed the database at any time with `make seed`.
+Then, each in its own terminal:
+
+```bash
+make server     # FastAPI on http://localhost:8000 (auto-seeds on first boot)
+make agent      # LiveKit agent worker
+make web        # dashboard on http://localhost:3000
+```
+
+Open http://localhost:3000, click **Simulate incoming call**, allow the mic, and
+talk to Riya. See `DEMO.md` for the recruiter demo script.
+
+Other commands: `make console` (talk to the agent via the local mic, no browser),
+`make verify` (deterministic booking + provider smoke tests), `make seed` (reseed).
+
+## Troubleshooting
+
+- **The agent goes silent mid-call.** Almost always Groq's free-tier rate limit
+  (gpt-oss-120b is capped at 8000 tokens/minute); check `runs/agent.log` for a
+  `429`. Either upgrade the Groq tier, or switch the model with one line in
+  `agent/.env`: set `LLM_MODEL`/`LLM_BASE_URL` to a higher-limit endpoint (for
+  example OpenAI `gpt-4o-mini` with your `OPENAI_API_KEY`).
+- **No audio in the browser.** Allow microphone access; the agent's voice plays
+  through the page once connected.
+- **Nothing happens on "Simulate call".** Confirm all three services are up and the
+  LiveKit keys match across `server/.env` and `agent/.env`.
 
 ## Run logs
 
-Local service logs and run artifacts (and, later, call recordings and
-transcripts) are written to `runs/` so they can be reviewed after a session.
-The directory is tracked but its contents are gitignored.
+Service logs, per-call JSON (transcript + patient details), and recordings are
+written under `runs/` so a session can be reviewed afterward. The directory is
+tracked; its contents are gitignored.
 
-## Current status: M4 dashboard polish complete
+## Deliberate mocks (with real upgrade paths)
 
-- `server/`: token endpoint (caller/observer grants), seeded EHR, and full
-  persistence: patient create/update, slot availability, appointment booking
-  (with double-book protection), and call timeline events.
-- `agent/`: full voice pipeline (silero VAD, Deepgram nova-3, gpt-oss-120b on
-  Groq, Rumik muga TTS) plus the five function tools. Every tool persists to the
-  server and publishes an agent-state event to the room data channel.
-- `web/`: a polished "operator console" dashboard that mirrors a live call in
-  real time. Cool-ink clinical theme with a medical-teal accent, icon sidebar and
-  top bar, a 3-column workspace (live transcript with tone chips and a streaming
-  caret, patient intake, availability/booking, a DepartmentFlow routing
-  switchboard, and the conversation timeline), and Framer Motion throughout.
+- Telephony -> browser WebRTC (SIP + a carrier is a config change, not code).
+- EHR -> seeded SQLite behind a real integration seam (swap in an FHIR client).
+- Recording -> client MediaRecorder instead of LiveKit Egress.
+- Department transfer -> status change + visualization (no second agent).
 
-Test the voice loop locally against your mic without a room:
-
-```bash
-cd agent && .venv/bin/python main.py console
-```
-
-Verify the tool + persistence path end to end (needs the server running):
-
-```bash
-cd agent && CLINICFLOW_API_URL=http://localhost:8000 \
-  .venv/bin/python scripts/scripted_call_test.py
-```
-
-See `.plans/` (local only) for the full milestone plan and interview notes.
+`.plans/` (local only) holds the milestone plan and interview notes (approach,
+guardrails, difficulties).

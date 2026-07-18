@@ -82,6 +82,27 @@ class Receptionist(Agent):
         async for frame in Agent.default.tts_node(self, single(), model_settings):
             yield frame
 
+    async def transcription_node(
+        self, text: AsyncIterable[str], model_settings: ModelSettings
+    ) -> AsyncIterable:
+        """Clean the forwarded transcript the same way as the audio, so the
+        dashboard shows exactly what was spoken (one question, no stray tone tag)
+        instead of the model's raw, possibly-doubled reply.
+        """
+        full = ""
+        async for chunk in text:
+            full += chunk
+        cleaned = _clean_reply(full)
+
+        async def single() -> AsyncIterable[str]:
+            if cleaned:
+                yield cleaned
+
+        async for out in Agent.default.transcription_node(
+            self, single(), model_settings
+        ):
+            yield out
+
     @function_tool()
     async def update_intake(
         self, context: RunContext, field: str, value: str
