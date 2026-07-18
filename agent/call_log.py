@@ -54,7 +54,7 @@ def write_call_record(
         "patient": {
             "id": state.patient_id,
             "name": state.intake.get("name"),
-            "dob": state.intake.get("dob"),
+            "age": state.intake.get("age"),
             "phone": state.intake.get("phone"),
             "symptoms": state.intake.get("symptoms"),
             "insurance": state.intake.get("insurance"),

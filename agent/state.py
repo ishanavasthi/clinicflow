@@ -26,7 +26,7 @@ logger = logging.getLogger("clinicflow-agent")
 DATA_TOPIC = "agent-state"
 
 # Intake fields the receptionist collects, in the order it should ask for them.
-INTAKE_FIELDS = ["name", "dob", "phone", "symptoms", "insurance"]
+INTAKE_FIELDS = ["name", "age", "phone", "symptoms", "insurance"]
 
 
 @dataclass

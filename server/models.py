@@ -39,7 +39,7 @@ class Slot(SQLModel, table=True):
 class Patient(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
-    dob: Optional[str] = None
+    age: Optional[str] = None
     phone: Optional[str] = None
     insurance: Optional[str] = None
     symptoms: Optional[str] = None

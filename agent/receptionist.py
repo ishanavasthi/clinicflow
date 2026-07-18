@@ -97,7 +97,7 @@ class Receptionist(Agent):
         Call this once per detail, right after the caller provides it.
 
         Args:
-            field: one of name, dob, phone, symptoms, insurance.
+            field: one of name, age, phone, symptoms, insurance.
             value: the value the caller gave, as plain text.
         """
         result = await apply_intake(

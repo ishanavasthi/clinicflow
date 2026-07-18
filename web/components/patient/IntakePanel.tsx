@@ -6,7 +6,7 @@ import { useCallStore } from "@/stores/callStore";
 
 const FIELDS: { key: string; label: string }[] = [
   { key: "name", label: "Full name" },
-  { key: "dob", label: "Date of birth" },
+  { key: "age", label: "Age" },
   { key: "phone", label: "Phone number" },
   { key: "symptoms", label: "Reason / symptoms" },
   { key: "insurance", label: "Insurance" },

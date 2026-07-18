@@ -19,7 +19,7 @@ router = APIRouter(prefix="/patients", tags=["patients"])
 
 class PatientCreate(BaseModel):
     name: Optional[str] = None
-    dob: Optional[str] = None
+    age: Optional[str] = None
     phone: Optional[str] = None
     insurance: Optional[str] = None
     symptoms: Optional[str] = None

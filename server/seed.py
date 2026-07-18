@@ -59,9 +59,10 @@ FAQS = [
      "visiting"),
 ]
 
+# (name, age, phone, insurance, symptoms)
 PATIENTS = [
-    ("Rohan Mehta", "1988-04-12", "+1-555-0142", "Aetna", None),
-    ("Sara Williams", "1995-09-30", "+1-555-0177", "Cigna", None),
+    ("Rohan Mehta", "38", "+1-555-0142", "Aetna", None),
+    ("Sara Williams", "31", "+1-555-0177", "Cigna", None),
 ]
 
 
@@ -114,10 +115,10 @@ def seed() -> None:
             session.add(FAQ(question=question, answer=answer, tag=tag))
         session.commit()
 
-        for name, dob, phone, insurance, symptoms in PATIENTS:
+        for name, age, phone, insurance, symptoms in PATIENTS:
             session.add(
                 Patient(
-                    name=name, dob=dob, phone=phone,
+                    name=name, age=age, phone=phone,
                     insurance=insurance, symptoms=symptoms,
                 )
             )
