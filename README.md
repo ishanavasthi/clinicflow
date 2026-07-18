@@ -12,7 +12,7 @@ Three deployable units meeting at LiveKit:
 ```
 web/     Next.js dashboard: caller pane (mic over WebRTC) + observer dashboard
 server/  FastAPI + SQLite: token minting, seeded EHR, CRUD persistence
-agent/   Python LiveKit worker: VAD -> Deepgram STT -> gpt-4o-mini -> Rumik TTS
+agent/   Python LiveKit worker: VAD -> Deepgram STT -> gpt-oss-120b (Groq) -> Rumik TTS
 ```
 
 The browser plays both roles: a caller pane joins a LiveKit room to simulate an
@@ -57,14 +57,21 @@ make web            # dashboard on http://localhost:3000
 
 Reseed the database at any time with `make seed`.
 
-## Current status: M0 scaffold complete
+## Current status: M1 voice loop complete
 
 - `server/`: token endpoint (caller/observer grants), seeded departments,
   doctors, slots, FAQs, and patients, plus read CRUD. Verified minting valid
   LiveKit JWTs and serving seed data.
-- `agent/`: package structure and config validation in place; the AgentSession
-  voice pipeline and function tools land in M1 and M2.
+- `agent/`: full AgentSession voice pipeline (silero VAD, Deepgram nova-3,
+  gpt-oss-120b on Groq, Rumik muga TTS) with the receptionist persona and Muga
+  tone-tag rules. Function tools and dashboard state publishing land in M2.
 - `web/`: Next.js 16 + Tailwind v4 + shadcn/ui dashboard shell with a working
   call simulator that mints a token and joins a LiveKit room.
+
+Test the voice loop locally against your mic without a room:
+
+```bash
+cd agent && .venv/bin/python main.py console
+```
 
 See `.plans/` (local only) for the full milestone plan and interview notes.
