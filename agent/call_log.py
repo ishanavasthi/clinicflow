@@ -38,15 +38,14 @@ def _transcript(chat_ctx: Any) -> list[dict]:
     return transcript
 
 
-def write_call_record(
+def build_record(
     state: CallState,
     chat_ctx: Any,
     started_at: datetime,
     ended_at: datetime,
-) -> str:
-    """Write the call as a JSON file under runs/calls/ and return its path."""
-    os.makedirs(RUNS_CALLS_DIR, exist_ok=True)
-    record = {
+) -> dict:
+    """Build the full call record (patient details, outcome, transcript)."""
+    return {
         "call_id": state.call_id,
         "room": state.room_name,
         "started_at": started_at.isoformat(),
@@ -62,9 +61,28 @@ def write_call_record(
         "booking": state.booking,
         "transcript": _transcript(chat_ctx),
     }
-    safe_room = (state.room_name or "call").replace("/", "-")
-    filename = f"{safe_room}_{ended_at.strftime('%Y%m%d-%H%M%S')}.json"
+
+
+def write_record(record: dict) -> str:
+    """Write a call record to a JSON file under runs/calls/ and return its path."""
+    os.makedirs(RUNS_CALLS_DIR, exist_ok=True)
+    safe_room = (record.get("room") or "call").replace("/", "-")
+    ended = record.get("ended_at", "")  # ISO, e.g. 2026-07-18T23:15:36.123
+    stamp = f"{ended[:10].replace('-', '')}-{ended[11:19].replace(':', '')}" if ended else "record"
+    filename = f"{safe_room}_{stamp}.json"
     path = os.path.join(RUNS_CALLS_DIR, filename)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(record, f, indent=2, ensure_ascii=False)
     return path
+
+
+def summary_of(record: dict) -> dict:
+    """A compact summary of a call record for the history list."""
+    return {
+        "name": record["patient"]["name"],
+        "age": record["patient"]["age"],
+        "phone": record["patient"]["phone"],
+        "symptom": record["patient"]["symptoms"],
+        "booking": record["booking"],
+        "routed_department": record["routed_department"],
+    }

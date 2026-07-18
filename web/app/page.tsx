@@ -6,11 +6,12 @@ import { RoomContext } from "@livekit/components-react";
 import { toast } from "sonner";
 import { Mic, MicOff, PhoneCall, PhoneOff, Radio, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sidebar } from "@/components/shell/Sidebar";
+import { Sidebar, type ShellView } from "@/components/shell/Sidebar";
 import { WallClock } from "@/components/shell/WallClock";
 import { StatusBadge } from "@/components/call/StatusBadge";
 import { CallWorkspace } from "@/components/call/CallWorkspace";
 import { PostCallView } from "@/components/call/PostCallView";
+import { HistoryView } from "@/components/history/HistoryView";
 import { connectCaller } from "@/lib/livekit";
 import { fetchDepartments, uploadRecording } from "@/lib/api";
 import { CallRecorder } from "@/lib/recorder";
@@ -35,6 +36,7 @@ export default function Home() {
   } = useCallStore();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [depsError, setDepsError] = useState<string | null>(null);
+  const [view, setView] = useState<ShellView>("call");
   const recorderRef = useRef<CallRecorder | null>(null);
 
   useEffect(() => {
@@ -117,15 +119,15 @@ export default function Home() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="flex h-screen overflow-hidden">
-        <Sidebar />
+        <Sidebar view={view} onSelect={setView} />
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-6">
             <div className="flex items-baseline gap-3">
               <h1 className="text-sm font-semibold tracking-tight">ClinicFlow</h1>
               <span className="hidden text-xs text-muted-foreground sm:inline">
-                AI Healthcare Receptionist
+                {view === "history" ? "Call history" : "AI Healthcare Receptionist"}
               </span>
-              {inCall && roomName && (
+              {view === "call" && inCall && roomName && (
                 <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
                   {roomName}
                 </span>
@@ -133,48 +135,51 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-3">
               <WallClock />
-              <StatusBadge status={status} />
-              {inCall ? (
-                <>
+              {view === "call" && <StatusBadge status={status} />}
+              {view === "call" &&
+                (inCall ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleToggleMute}
+                      aria-pressed={muted}
+                      className={muted ? "border-stream/40 text-stream" : ""}
+                    >
+                      {muted ? (
+                        <MicOff className="h-4 w-4" />
+                      ) : (
+                        <Mic className="h-4 w-4" />
+                      )}
+                      {muted ? "Muted" : "Mute"}
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={handleEnd}>
+                      <PhoneOff className="h-4 w-4" />
+                      End call
+                    </Button>
+                  </>
+                ) : ended ? (
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={handleToggleMute}
-                    aria-pressed={muted}
-                    className={muted ? "border-stream/40 text-stream" : ""}
+                    onClick={handleNewCall}
+                    disabled={status === "wrap-up"}
                   >
-                    {muted ? (
-                      <MicOff className="h-4 w-4" />
-                    ) : (
-                      <Mic className="h-4 w-4" />
-                    )}
-                    {muted ? "Muted" : "Mute"}
+                    <RotateCcw className="h-4 w-4" />
+                    New call
                   </Button>
-                  <Button size="sm" variant="destructive" onClick={handleEnd}>
-                    <PhoneOff className="h-4 w-4" />
-                    End call
+                ) : (
+                  <Button size="sm" onClick={handleStart} disabled={busy}>
+                    <PhoneCall className="h-4 w-4" />
+                    {status === "connecting" ? "Connecting..." : "Simulate call"}
                   </Button>
-                </>
-              ) : ended ? (
-                <Button
-                  size="sm"
-                  onClick={handleNewCall}
-                  disabled={status === "wrap-up"}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  New call
-                </Button>
-              ) : (
-                <Button size="sm" onClick={handleStart} disabled={busy}>
-                  <PhoneCall className="h-4 w-4" />
-                  {status === "connecting" ? "Connecting..." : "Simulate call"}
-                </Button>
-              )}
+                ))}
             </div>
           </header>
 
           <main className="min-h-0 flex-1 overflow-y-auto scroll-thin px-6 py-5">
-            {inCall && room ? (
+            {view === "history" ? (
+              <HistoryView />
+            ) : inCall && room ? (
               <RoomContext.Provider value={room}>
                 <div className="flex flex-col gap-3">
                   {muted && (

@@ -104,3 +104,36 @@ export interface FAQ {
   answer: string;
   tag: string;
 }
+
+export interface CallSummaryData {
+  name: string | null;
+  age: string | null;
+  phone: string | null;
+  symptom: string | null;
+  booking: BookedAppointment | null;
+  routed_department: string | null;
+}
+
+export interface CallListItem {
+  id: number;
+  room: string;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  routed_department: string | null;
+  recording_url: string | null;
+  summary: CallSummaryData;
+}
+
+export interface CallDetailData {
+  id: number;
+  room: string;
+  patient_id: number | null;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  routed_department: string | null;
+  recording_url: string | null;
+  summary: CallSummaryData;
+  transcript: { role: "user" | "assistant"; text: string }[];
+}

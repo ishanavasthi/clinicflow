@@ -48,6 +48,9 @@ class EventCreate(BaseModel):
 class CallEnd(BaseModel):
     routed_department: Optional[str] = None
     recording_url: Optional[str] = None
+    patient_id: Optional[int] = None
+    summary: Optional[dict] = None
+    transcript: Optional[list] = None
 
 
 @router.post("", response_model=Call)
@@ -59,9 +62,23 @@ def create_call(body: CallCreate, session: Session = Depends(get_session)) -> Ca
     return call
 
 
-@router.get("", response_model=list[Call])
-def list_calls(session: Session = Depends(get_session)) -> list[Call]:
-    return session.exec(select(Call).order_by(Call.started_at.desc())).all()
+@router.get("")
+def list_calls(session: Session = Depends(get_session)) -> list[dict]:
+    """Light list for the history view: summary per call, without the transcript."""
+    calls = session.exec(select(Call).order_by(Call.started_at.desc())).all()
+    return [
+        {
+            "id": c.id,
+            "room": c.room,
+            "status": c.status,
+            "started_at": c.started_at,
+            "ended_at": c.ended_at,
+            "routed_department": c.routed_department,
+            "recording_url": c.recording_url,
+            "summary": c.summary or {},
+        }
+        for c in calls
+    ]
 
 
 @router.get("/{call_id}", response_model=Call)
@@ -155,6 +172,12 @@ def end_call(
         call.routed_department = body.routed_department
     if body.recording_url is not None:
         call.recording_url = body.recording_url
+    if body.patient_id is not None:
+        call.patient_id = body.patient_id
+    if body.summary is not None:
+        call.summary = body.summary
+    if body.transcript is not None:
+        call.transcript = body.transcript
     session.add(call)
     session.commit()
     session.refresh(call)

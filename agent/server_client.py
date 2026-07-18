@@ -35,11 +35,20 @@ class ServerClient:
         call_id: int,
         routed_department: Optional[str] = None,
         recording_url: Optional[str] = None,
+        patient_id: Optional[int] = None,
+        summary: Optional[dict] = None,
+        transcript: Optional[list] = None,
     ) -> dict:
         return await self._json(
             "POST",
             f"/calls/{call_id}/end",
-            {"routed_department": routed_department, "recording_url": recording_url},
+            {
+                "routed_department": routed_department,
+                "recording_url": recording_url,
+                "patient_id": patient_id,
+                "summary": summary,
+                "transcript": transcript,
+            },
         )
 
     async def add_event(self, call_id: int, type: str, payload: dict) -> dict:

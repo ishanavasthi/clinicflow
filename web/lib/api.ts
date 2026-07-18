@@ -1,7 +1,18 @@
 /** Thin client for the ClinicFlow FastAPI server. */
-import type { Department, FAQ, TokenResponse } from "./types";
+import type {
+  CallDetailData,
+  CallListItem,
+  Department,
+  FAQ,
+  TokenResponse,
+} from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+/** Absolute URL for a server-served media path (e.g. a recording). */
+export function mediaUrl(path: string): string {
+  return `${API_URL}${path}`;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
@@ -37,6 +48,14 @@ export function fetchDepartments(): Promise<Department[]> {
 
 export function fetchFaqs(): Promise<FAQ[]> {
   return request<FAQ[]>("/faqs");
+}
+
+export function fetchCalls(): Promise<CallListItem[]> {
+  return request<CallListItem[]>("/calls");
+}
+
+export function fetchCall(id: number): Promise<CallDetailData> {
+  return request<CallDetailData>(`/calls/${id}`);
 }
 
 /** Upload a call recording blob. Returns the server URL to fetch it back. */

@@ -65,6 +65,9 @@ class Call(SQLModel, table=True):
     ended_at: Optional[datetime] = None
     recording_url: Optional[str] = None
     routed_department: Optional[str] = None
+    # Immutable snapshot of the call for the history view (written at end).
+    summary: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    transcript: list = Field(default_factory=list, sa_column=Column(JSON))
 
 
 class TimelineEvent(SQLModel, table=True):
