@@ -57,11 +57,11 @@ async def main() -> None:
     # 2. Availability.
     r = await check_availability(state, server, publisher, "Orthopedics")
     assert r["ok"] and r["data"]["slots"], r
-    chosen = r["data"]["slots"][0]
-    print(f"availability OK -> {len(r['data']['slots'])} slots, choosing slot {chosen['slot_id']} ({chosen['when']})")
+    chosen = r["data"]["slots"][0]  # the caller picks option 1
+    print(f"availability OK -> {len(r['data']['slots'])} slots, choosing option 1 ({chosen['when']})")
 
-    # 3. Book.
-    r = await book_appointment(state, server, publisher, chosen["slot_id"], "knee pain")
+    # 3. Book option 1.
+    r = await book_appointment(state, server, publisher, 1, "knee pain")
     assert r["ok"], r
     appt = r["data"]
     print(f"booking OK -> appointment_id={appt['appointment_id']}, {appt['doctor']}, {appt['department']}, {appt['when']}")

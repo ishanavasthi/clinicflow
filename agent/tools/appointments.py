@@ -44,7 +44,6 @@ async def check_availability(
         )
         return {"ok": True, "data": {"slots": [], "department": department}}
 
-    state.offered_slots = {s["slot_id"]: s for s in slots}
     labelled = [
         {
             "slot_id": s["slot_id"],
@@ -54,6 +53,7 @@ async def check_availability(
         }
         for s in slots
     ]
+    state.offered_slots = labelled  # ordered, so the caller's choice is an index
     await publisher.publish(
         "booking",
         {"phase": "availability", "department": department, "slots": labelled},
@@ -65,11 +65,21 @@ async def book_appointment(
     state: CallState,
     server: ServerClient,
     publisher: AgentStatePublisher,
-    slot_id: int,
+    option: int,
     reason: str = "",
 ) -> dict:
     if state.patient_id is None:
         return {"ok": False, "error": "collect the patient's name first"}
+
+    slots = state.offered_slots
+    if not slots:
+        return {"ok": False, "error": "check availability first"}
+    if not isinstance(option, int) or option < 1 or option > len(slots):
+        return {
+            "ok": False,
+            "error": f"no such option; offer the {len(slots)} times again",
+        }
+    slot_id = slots[option - 1]["slot_id"]
 
     reason = reason or state.intake.get("symptoms", "")
     try:

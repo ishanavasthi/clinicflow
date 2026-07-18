@@ -33,9 +33,9 @@ _PUNCT_SPACE_RE = re.compile(r"([.,!?;:])(?=[A-Za-z])")
 def _clean_reply(text: str) -> str:
     """Prepare the model's reply for both speech and the transcript:
 
-    - drop any stray leading tone tag (muga is pinned to one tone),
+    - drop any stray leading tone tag (the voice is pinned to one style),
     - keep at most one question so a rambling turn cannot ask two things,
-    - normalize punctuation spacing so muga pauses naturally at full stops and
+    - normalize punctuation spacing so the TTS pauses naturally at full stops and
       commas. Delivery is neutral and accurate; there is no emotion handling.
     """
     text = _TONE_TAG_RE.sub("", text, count=1).strip()
@@ -43,6 +43,59 @@ def _clean_reply(text: str) -> str:
     if first != -1 and "?" in text[first + 1 :]:
         text = text[: first + 1].strip()
     text = _PUNCT_SPACE_RE.sub(r"\1 ", text)
+    return text
+
+
+_NUM_WORDS = {
+    0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+    7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+    13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen",
+    17: "seventeen", 18: "eighteen", 19: "nineteen", 20: "twenty", 30: "thirty",
+    40: "forty", 50: "fifty",
+}
+
+
+def _num_to_words(n: int) -> str:
+    if n in _NUM_WORDS:
+        return _NUM_WORDS[n]
+    tens, ones = divmod(n, 10)
+    return f"{_NUM_WORDS[tens * 10]} {_NUM_WORDS[ones]}"
+
+
+def _clock(hour: int, minute: int) -> str:
+    h12 = hour % 12 or 12
+    if minute == 0:
+        return _num_to_words(h12)
+    if minute < 10:
+        return f"{_num_to_words(h12)} oh {_num_to_words(minute)}"
+    return f"{_num_to_words(h12)} {_num_to_words(minute)}"
+
+
+# Whitespace incl. the narrow / no-break spaces some models emit before am/pm.
+_WS = r"\s*"  # \s matches the narrow / no-break spaces models emit
+_MERIDIEM_TIME_RE = re.compile(
+    rf"\b(\d{{1,2}})(?::(\d{{2}}))?{_WS}([ap])\.?{_WS}m\.?\b", re.IGNORECASE
+)
+_BARE_TIME_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+
+
+def _spell_meridiem(m: "re.Match[str]") -> str:
+    hour = int(m.group(1))
+    minute = int(m.group(2) or 0)
+    h12 = hour % 12 or 12
+    if m.group(3).lower() == "a":
+        period = "in the morning"
+    else:
+        period = "in the afternoon" if h12 in (12, 1, 2, 3, 4) else "in the evening"
+    return f"{_clock(hour, minute)} {period}"
+
+
+def _normalize_times(text: str) -> str:
+    """Spell out clock times for speech so the TTS never voices the meridiem twice
+    ('9:30 am' -> 'nine thirty in the morning', '9:30' -> 'nine thirty'). Applied to
+    the spoken audio only; the transcript keeps the compact digit form."""
+    text = _MERIDIEM_TIME_RE.sub(_spell_meridiem, text)
+    text = _BARE_TIME_RE.sub(lambda m: _clock(int(m.group(1)), int(m.group(2))), text)
     return text
 
 
@@ -76,14 +129,14 @@ class Receptionist(Agent):
     ) -> AsyncIterable:
         """Clean the model's reply before synthesis.
 
-        Strips any stray tone tag (Rumik muga is pinned to one tone and raises on a
-        conflicting tag) and keeps at most one question. muga aggregates the full
-        response before speaking anyway, so buffering the text here costs nothing.
+        Strips any stray tone tag, keeps at most one question, and spells out clock
+        times so the TTS reads them once and naturally ("9:30 am" -> "nine thirty in
+        the morning"). Buffering the whole reply here is fine; it is short.
         """
         full = ""
         async for chunk in text:
             full += chunk
-        cleaned = _clean_reply(full)
+        cleaned = _normalize_times(_clean_reply(full))
 
         async def single() -> AsyncIterable[str]:
             if cleaned:
@@ -151,27 +204,29 @@ class Receptionist(Agent):
         if not slots:
             return f"No open slots in {department} right now. Offer to take a callback."
         lines = [
-            f"slot_id {s['slot_id']}: {s['doctor']}, {s['when']}" for s in slots
+            f"{i + 1}. {s['doctor']} at {s['when']}" for i, s in enumerate(slots)
         ]
         return (
-            "Open slots:\n"
+            "Available appointments:\n"
             + "\n".join(lines)
-            + "\nRead these times to the caller, ask which they prefer, then call "
-            "book_appointment with that slot_id."
+            + "\nOffer these to the caller conversationally, saying only the times "
+            "(never the numbers or any id). When they choose one, call "
+            "book_appointment with its option number."
         )
 
     @function_tool()
     async def book_appointment(
-        self, context: RunContext, slot_id: int, reason: str = ""
+        self, context: RunContext, option: int, reason: str = ""
     ) -> str:
-        """Book a slot the caller picked from check_availability.
+        """Book the appointment time the caller chose from check_availability.
 
         Args:
-            slot_id: the chosen slot_id.
+            option: the option number the caller picked (1, 2, or 3), in the order
+                you offered them.
             reason: the visit reason or symptom, if known.
         """
         result = await book_appointment(
-            self.state, self.server, self.publisher, slot_id, reason
+            self.state, self.server, self.publisher, option, reason
         )
         if not result["ok"]:
             return (

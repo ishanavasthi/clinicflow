@@ -35,7 +35,7 @@ class CallState:
     room_name: str = ""
     patient_id: Optional[int] = None
     intake: dict = field(default_factory=dict)
-    offered_slots: dict = field(default_factory=dict)  # slot_id -> slot option
+    offered_slots: list = field(default_factory=list)  # ordered slot options offered
     status: str = "active"
     routed_department: Optional[str] = None
     booking: Optional[dict] = None
