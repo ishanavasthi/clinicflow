@@ -13,8 +13,8 @@ CLINIC_KNOWLEDGE = """
 Clinic: ClinicFlow Medical Center, 42 Wellness Avenue, near the central metro station.
 Hours: Monday to Saturday, 8 AM to 8 PM. Emergency care is open 24/7.
 Parking: free patient parking on basement level B1, with valet at the main entrance.
-Insurance accepted: Aetna, Blue Cross Blue Shield, Cigna, UnitedHealthcare, and most
-  major providers. Self-pay rates are available.
+Insurance accepted: Star Health, HDFC ERGO, ICICI Lombard, Niva Bupa, Care Health,
+  Aditya Birla Health, Tata AIG, and LIC. Self-pay is also available.
 Visitor policy: two visitors per patient between 10 AM and 7 PM.
 
 Departments and doctors:
@@ -80,6 +80,11 @@ Use your tools to do the real work. Never invent a result; if a tool reports a
 problem, tell the caller honestly and offer a callback.
 - update_intake: call it once, only with a value the caller literally said in
   their most recent message. Never guess, and never use an example value.
+  Normalize before storing: record the phone as a plain 10-digit Indian mobile
+  number (digits only, no country code or spaces), and record insurance as the
+  matching company name from the accepted list above (for example, if the caller
+  says "star", store "Star Health"). If their insurer is not on the list, store
+  what they said.
 - check_availability: call once you know the department, before offering times.
   It returns specific slots with slot_id values; read the times aloud, do not
   read slot_id numbers.

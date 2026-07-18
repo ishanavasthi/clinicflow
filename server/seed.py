@@ -52,7 +52,7 @@ FAQS = [
      "Yes, free patient parking is available on basement level B1, with valet service at the main entrance.",
      "parking"),
     ("What insurance do you accept?",
-     "We accept Aetna, Blue Cross Blue Shield, Cigna, UnitedHealthcare, and most major providers. We also offer self-pay rates.",
+     "We accept Star Health, HDFC ERGO, ICICI Lombard, Niva Bupa, Care Health, Aditya Birla Health, Tata AIG, and LIC. We also offer self-pay rates.",
      "insurance"),
     ("What is your visitor policy?",
      "Two visitors per patient are allowed between 10 AM and 7 PM. Pediatric patients may have a parent stay overnight.",
@@ -61,8 +61,8 @@ FAQS = [
 
 # (name, age, phone, insurance, symptoms)
 PATIENTS = [
-    ("Rohan Mehta", "38", "+1-555-0142", "Aetna", None),
-    ("Sara Williams", "31", "+1-555-0177", "Cigna", None),
+    ("Rohan Mehta", "38", "9820012345", "Star Health", None),
+    ("Sara Williams", "31", "9930067890", "HDFC ERGO", None),
 ]
 
 
