@@ -57,17 +57,18 @@ make web            # dashboard on http://localhost:3000
 
 Reseed the database at any time with `make seed`.
 
-## Current status: M2 tools and persistence complete
+## Current status: M3 realtime dashboard complete
 
 - `server/`: token endpoint (caller/observer grants), seeded EHR, and full
   persistence: patient create/update, slot availability, appointment booking
   (with double-book protection), and call timeline events.
 - `agent/`: full voice pipeline (silero VAD, Deepgram nova-3, gpt-oss-120b on
-  Groq, Rumik muga TTS) plus the five function tools (intake, availability,
-  booking, FAQ logging, routing). Every tool persists to the server and
-  publishes an agent-state event to the room data channel for the dashboard.
-- `web/`: Next.js 16 + Tailwind v4 + shadcn/ui dashboard shell with a working
-  call simulator; the live dashboard that consumes agent-state events is M3.
+  Groq, Rumik muga TTS) plus the five function tools. Every tool persists to the
+  server and publishes an agent-state event to the room data channel.
+- `web/`: the dashboard mirrors a live call in real time. It joins the LiveKit
+  room, plays the agent's voice, streams the transcript (`useTranscriptions`),
+  and folds agent-state events (`useDataChannel`) into panels for intake,
+  availability/booking, department routing, and the conversation timeline.
 
 Test the voice loop locally against your mic without a room:
 

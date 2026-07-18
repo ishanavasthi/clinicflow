@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { RoomContext } from "@livekit/components-react";
 import { toast } from "sonner";
-import { Activity, Building2, Mic, PhoneCall, PhoneOff } from "lucide-react";
+import { Activity, Building2, PhoneCall, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,47 +13,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { StatusBadge } from "@/components/call/StatusBadge";
+import { CallWorkspace } from "@/components/call/CallWorkspace";
 import { connectCaller } from "@/lib/livekit";
 import { fetchDepartments } from "@/lib/api";
 import { useCallStore } from "@/stores/callStore";
-import type { CallStatus, Department } from "@/lib/types";
-
-const STATUS_LABEL: Record<CallStatus, string> = {
-  idle: "Idle",
-  ringing: "Ringing",
-  connecting: "Connecting",
-  active: "Active",
-  "wrap-up": "Wrap-up",
-  ended: "Ended",
-  error: "Error",
-};
-
-function StatusBadge({ status }: { status: CallStatus }) {
-  const tone =
-    status === "active"
-      ? "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30"
-      : status === "connecting"
-        ? "bg-amber-500/15 text-amber-400 ring-amber-500/30"
-        : status === "error"
-          ? "bg-red-500/15 text-red-400 ring-red-500/30"
-          : "bg-muted text-muted-foreground ring-border";
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 ${tone}`}
-    >
-      <span className="relative flex h-2 w-2">
-        {status === "active" && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-        )}
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
-      </span>
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
+import type { Department } from "@/lib/types";
 
 export default function Home() {
-  const { status, roomName, identity, error, setStatus, setConnection, setError, reset } =
+  const { status, room, roomName, error, setStatus, setConnection, setError, reset } =
     useCallStore();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [depsError, setDepsError] = useState<string | null>(null);
@@ -64,14 +33,15 @@ export default function Home() {
   }, []);
 
   const busy = status === "connecting" || status === "active";
+  const inCall = status === "active" && room !== null;
 
   async function handleStart() {
     setStatus("connecting");
     try {
-      const { room, info } = await connectCaller(undefined, {
+      const { room: connected, info } = await connectCaller(undefined, {
         onDisconnected: () => reset(),
       });
-      setConnection(room, info.room, info.identity);
+      setConnection(connected, info.room, info.identity);
       toast.success(`Connected to ${info.room}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to connect";
@@ -81,14 +51,13 @@ export default function Home() {
   }
 
   async function handleEnd() {
-    const room = useCallStore.getState().room;
-    await room?.disconnect();
+    await useCallStore.getState().room?.disconnect();
     reset();
     toast.message("Call ended");
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-12">
+    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-6 py-8">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
@@ -101,60 +70,72 @@ export default function Home() {
             </p>
           </div>
         </div>
-        <StatusBadge status={status} />
+        <div className="flex items-center gap-3">
+          <StatusBadge status={status} />
+          {inCall ? (
+            <Button variant="destructive" onClick={handleEnd}>
+              <PhoneOff className="h-4 w-4" />
+              End call
+            </Button>
+          ) : (
+            <Button onClick={handleStart} disabled={busy}>
+              <PhoneCall className="h-4 w-4" />
+              {status === "connecting" ? "Connecting..." : "Simulate incoming call"}
+            </Button>
+          )}
+        </div>
       </header>
 
-      <Card className="overflow-hidden">
+      {inCall && room ? (
+        <RoomContext.Provider value={room}>
+          <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+            <span>
+              Room <span className="font-mono text-foreground">{roomName}</span>
+            </span>
+            <span className="text-muted-foreground/50">
+              Speak into your mic; the receptionist replies by voice and every
+              panel updates live.
+            </span>
+          </div>
+          <CallWorkspace />
+        </RoomContext.Provider>
+      ) : (
+        <IdleView
+          departments={departments}
+          depsError={depsError}
+          error={error}
+        />
+      )}
+    </main>
+  );
+}
+
+function IdleView({
+  departments,
+  depsError,
+  error,
+}: {
+  departments: Department[];
+  depsError: string | null;
+  error: string | null;
+}) {
+  return (
+    <>
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PhoneCall className="h-4 w-4 text-primary" />
             Live Call Simulator
           </CardTitle>
           <CardDescription>
-            Simulate an incoming patient call. The browser joins a LiveKit room
-            over WebRTC and publishes your microphone; the AI receptionist joins
-            the same room server-side.
+            Click &ldquo;Simulate incoming call&rdquo; above. The browser joins a
+            LiveKit room over WebRTC and publishes your microphone; the AI
+            receptionist joins the same room and the dashboard mirrors the call
+            in real time.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-6">
-          <div className="flex flex-wrap items-center gap-3">
-            {status !== "active" ? (
-              <Button size="lg" onClick={handleStart} disabled={busy}>
-                <PhoneCall className="h-4 w-4" />
-                {status === "connecting" ? "Connecting..." : "Simulate incoming call"}
-              </Button>
-            ) : (
-              <Button size="lg" variant="destructive" onClick={handleEnd}>
-                <PhoneOff className="h-4 w-4" />
-                End call
-              </Button>
-            )}
-            {status === "active" && (
-              <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Mic className="h-4 w-4 text-emerald-400" />
-                Microphone live
-              </span>
-            )}
-          </div>
-
-          {status === "active" && (
-            <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm sm:grid-cols-2">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Room
-                </p>
-                <p className="font-mono">{roomName}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Identity
-                </p>
-                <p className="font-mono">{identity}</p>
-              </div>
-            </div>
-          )}
-
-          {error && (
+        {error && (
+          <CardContent>
             <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               {error}
               {error.includes("LiveKit") && (
@@ -163,16 +144,14 @@ export default function Home() {
                 </span>
               )}
             </p>
-          )}
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
 
       <section className="flex flex-col gap-4">
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-medium text-muted-foreground">
-            Departments
-          </h2>
+          <h2 className="text-sm font-medium text-muted-foreground">Departments</h2>
         </div>
         {depsError ? (
           <p className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
@@ -190,9 +169,7 @@ export default function Home() {
                       Floor {dept.floor}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {dept.description}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{dept.description}</p>
                   {dept.doctors.length > 0 && (
                     <p className="mt-1 text-xs text-muted-foreground/80">
                       {dept.doctors.map((d) => d.name).join(", ")}
@@ -204,10 +181,6 @@ export default function Home() {
           </div>
         )}
       </section>
-
-      <footer className="mt-auto pt-6 text-center text-xs text-muted-foreground/60">
-        M0 scaffold. Voice pipeline (M1) and live dashboard (M3+) land next.
-      </footer>
-    </main>
+    </>
   );
 }
