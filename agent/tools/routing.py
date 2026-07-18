@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from state import AgentStatePublisher, CallState
 from server_client import ServerClient
+from tools.intake import apply_intake
 
 DEPARTMENTS = {
     "emergency": "Emergency",
@@ -30,6 +31,11 @@ async def route_to_department(
             "ok": False,
             "error": f"unknown department '{department}'; valid: {', '.join(DEPARTMENTS.values())}",
         }
+
+    # Backstop: the routing reason is the caller's symptom. If the model routed
+    # without recording it, capture it in intake now so the panel is not left blank.
+    if reason and not state.intake.get("symptoms"):
+        await apply_intake(state, server, publisher, "symptoms", reason)
 
     state.routed_department = canonical
     state.status = "routing"
