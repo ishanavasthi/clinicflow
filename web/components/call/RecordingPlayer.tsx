@@ -27,7 +27,7 @@ export function RecordingPlayer() {
       />
       <a
         href={recordingUrl}
-        download="clinicflow-call.webm"
+        download="clinicflow-call.wav"
         className="inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       >
         <Download className="h-3.5 w-3.5" />
