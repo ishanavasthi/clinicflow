@@ -91,6 +91,18 @@ export default function Home() {
       } catch (e) {
         console.warn("recording unavailable", e);
       }
+      // If the browser still blocks audio, retry on the caller's next interaction
+      // so Riya's greeting is not left silent.
+      if (!connected.canPlaybackAudio) {
+        toast.message("Tap anywhere to enable sound");
+        const enable = () => {
+          connected.startAudio().catch(() => {});
+          window.removeEventListener("pointerdown", enable);
+          window.removeEventListener("keydown", enable);
+        };
+        window.addEventListener("pointerdown", enable);
+        window.addEventListener("keydown", enable);
+      }
       toast.success(`Connected to ${info.room}`);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to connect";

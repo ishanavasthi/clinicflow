@@ -65,13 +65,10 @@ SYSTEM_PROMPT = build_system_prompt()
 # (agent/audio/greeting.wav) so it plays instantly with no LLM or TTS round trip;
 # the text below is forwarded to the dashboard transcript. If you change this
 # text, regenerate the audio with scripts/generate_cached_audio.py.
-GREETING_TEXT = (
-    "Hi, thanks for calling ClinicFlow Medical Center. This is Riya. "
-    "How can I help you today?"
-)
+GREETING_TEXT = "Hi, this is Riya at ClinicFlow. How can I help you today?"
 
 # Fallback used only if the cached greeting audio is missing.
 GREETING_INSTRUCTION = (
-    "Greet the caller as Riya from ClinicFlow Medical Center and ask how you can "
-    "help them today. Keep it to one short sentence."
+    "Greet the caller as Riya from ClinicFlow and ask how you can help them. "
+    "One short sentence."
 )

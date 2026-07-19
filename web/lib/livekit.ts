@@ -33,5 +33,12 @@ export async function connectCaller(
   await room.connect(info.url, info.token);
   await room.localParticipant.setMicrophoneEnabled(true);
 
+  // Unlock audio playback within the user's click gesture, so the agent's
+  // greeting is heard immediately. Browsers block autoplay until a gesture; the
+  // agent's audio track arrives after this async connect, so without this the
+  // greeting is silent until the caller interacts. Best-effort: if it is still
+  // blocked, the caller-side fallback listener retries on the next interaction.
+  await room.startAudio().catch(() => {});
+
   return { room, info };
 }
