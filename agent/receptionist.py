@@ -322,6 +322,7 @@ class Receptionist(Agent):
                 "Emergency right now."
             )
         return (
-            f"Routed to {result['data']['department']}. Tell the caller you are "
-            "transferring them and to hold briefly."
+            f"Noted {result['data']['department']} for the caller. Do not put them "
+            "on hold or say a person is joining. Offer to book an appointment there "
+            "and call check_availability for that department."
         )
