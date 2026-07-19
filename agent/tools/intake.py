@@ -8,6 +8,23 @@ from server_client import ServerClient
 
 VALID_FIELDS = set(INTAKE_FIELDS)
 
+# Map the wordings the model actually uses to the canonical intake fields, so a
+# singular "symptom" or a "phone number" is never silently dropped (which, with the
+# intake-complete gate on booking, would otherwise block the call).
+_FIELD_ALIASES = {
+    "name": "name", "full name": "name", "fullname": "name", "full_name": "name",
+    "age": "age",
+    "phone": "phone", "phone number": "phone", "phone_number": "phone",
+    "mobile": "phone", "number": "phone", "contact": "phone",
+    "symptom": "symptoms", "symptoms": "symptoms", "reason": "symptoms",
+    "reason/symptoms": "symptoms", "complaint": "symptoms",
+}
+
+
+def _canonical_field(field: str) -> str:
+    key = field.strip().lower()
+    return _FIELD_ALIASES.get(key, key)
+
 
 def _normalize(field: str, value: str) -> str:
     """Clean a value before storing. The LLM is asked to normalize too; this is a
@@ -30,7 +47,7 @@ async def apply_intake(
     field: str,
     value: str,
 ) -> dict:
-    field = field.strip().lower()
+    field = _canonical_field(field)
     if field not in VALID_FIELDS:
         return {"ok": False, "error": f"'{field}' is not a valid intake field"}
 

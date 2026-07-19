@@ -18,7 +18,7 @@ from server_client import ServerClient
 from state import AgentStatePublisher, CallState
 from tools.appointments import book_appointment, check_availability
 from tools.faq import answer_faq
-from tools.intake import apply_intake
+from tools.intake import _canonical_field, apply_intake
 from tools.routing import route_to_department
 
 # Matches a single leading tone tag like "[happy] " that a model might still emit.
@@ -219,7 +219,7 @@ class Receptionist(Agent):
         """
         # Guard against a fabricated phone: only record digits the caller actually
         # spoke recently. Catches the model inventing a placeholder number.
-        if field.strip().lower() == "phone":
+        if _canonical_field(field) == "phone":
             recorded = re.sub(r"\D", "", value)
             spoken = _spoken_digits(self._recent_user_text())
             if len(recorded) >= 7 and recorded not in spoken:
@@ -246,6 +246,16 @@ class Receptionist(Agent):
             department: Emergency, General Medicine, Pediatrics, Orthopedics, or
                 Cardiology.
         """
+        # Do not offer appointment times until intake is complete. The model tends
+        # to rush ahead and check availability before the caller has given every
+        # detail (the phone especially); make that impossible, not just discouraged.
+        missing = self.state.missing_intake()
+        if missing:
+            return (
+                "Do not offer appointment times yet. First ask for the caller's "
+                f"{', '.join(missing)}, one at a time, and wait for each answer. "
+                "Check availability only once you have them all."
+            )
         result = await check_availability(
             self.state, self.server, self.publisher, department
         )
