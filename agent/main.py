@@ -9,6 +9,7 @@ Run:  python main.py dev     (or `console` to talk via the local mic)
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -116,7 +117,16 @@ async def entrypoint(ctx: JobContext) -> None:
 
     session.on("error", on_error)
 
-    async def on_shutdown() -> None:
+    # Persist the call record exactly once. Runs the moment the caller hangs up
+    # (see below), not only on worker shutdown, so the history view has the
+    # transcript, summary, and routing right away. The shutdown callback is a
+    # fallback for a disconnect we never saw (e.g. a dropped connection).
+    finalized = {"done": False}
+
+    async def finalize() -> None:
+        if finalized["done"]:
+            return
+        finalized["done"] = True
         # Build the call record once, then archive it to runs/calls/ and store it
         # on the call in SQLite so the history view is self-describing.
         record = build_record(state, session.history, started_at, datetime.now())
@@ -136,10 +146,19 @@ async def entrypoint(ctx: JobContext) -> None:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("could not end call record: %s", exc)
-        await publisher.publish("status", {"status": "ended"})
+        try:
+            await publisher.publish("status", {"status": "ended"})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not publish ended status: %s", exc)
         await server.aclose()
 
-    ctx.add_shutdown_callback(on_shutdown)
+    def _on_participant_disconnected(_participant: object) -> None:
+        # The caller left; persist now instead of waiting for the job to be
+        # reclaimed (which can be 20s+ later).
+        asyncio.create_task(finalize())
+
+    ctx.room.on("participant_disconnected", _on_participant_disconnected)
+    ctx.add_shutdown_callback(finalize)
 
     await session.start(room=ctx.room, agent=Receptionist(state, server, publisher))
     await publisher.publish("status", {"status": "active", "call_id": state.call_id})
