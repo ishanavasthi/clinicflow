@@ -5,12 +5,17 @@ runs intake, books appointments, answers FAQs, and routes callers to the right
 department, paired with a live, SaaS-quality dashboard that mirrors every call as
 it happens.
 
-## Demo video
+## Demo videos
 
-**[Watch the 2-minute demo on Loom](https://www.loom.com/share/7459d24730ec416e8b25cc924d598c29)**
+**[1. Full call walkthrough (2 min)](https://www.loom.com/share/7459d24730ec416e8b25cc924d598c29)**
 
 A full call from greeting through intake, booking, an FAQ, and department routing,
 with the dashboard updating live and the recording played back from history.
+
+**[2. Testing emergency routing and guardrails](https://www.loom.com/share/516f5a9c228948d6bd49bad9cf5ae161)**
+
+A red-flag symptom skips intake and routes straight to the Emergency ward with a
+clinician handoff, alongside the agent's scope and safety guardrails.
 
 ## Highlights
 
