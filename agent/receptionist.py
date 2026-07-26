@@ -328,8 +328,10 @@ class Receptionist(Agent):
             return f"Could not route ({result['error']})."
         if result["data"]["emergency"]:
             return (
-                "Routed to Emergency. Tell the caller you are connecting them to "
-                "Emergency right now."
+                "Routed to Emergency. Stop collecting any details. In one short, "
+                "calm reply tell the caller you are connecting them to the Emergency "
+                "ward now and a medical team member will take over shortly. Do not "
+                "ask any more questions."
             )
         return (
             f"Noted {result['data']['department']} for the caller. Do not put them "
