@@ -52,11 +52,18 @@ def build_record(
     chat_ctx: Any,
     started_at: datetime,
     ended_at: datetime,
+    config: dict | None = None,
 ) -> dict:
-    """Build the full call record (patient details, outcome, transcript, latency)."""
+    """Build the full call record (patient details, outcome, transcript, latency).
+
+    `config` is the pipeline that produced the call (voice mode, models). It is
+    stored alongside the timings so a later comparison groups by configuration
+    instead of pooling two different pipelines into one percentile.
+    """
     return {
         "call_id": state.call_id,
         "room": state.room_name,
+        "config": config or {},
         "started_at": started_at.isoformat(),
         "ended_at": ended_at.isoformat(),
         "patient": {

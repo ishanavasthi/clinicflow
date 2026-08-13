@@ -41,9 +41,9 @@ LABELS = {
     "e2e": "end to end (heard pause)",
     "pipeline": "pipeline (e2e - endpointing)",
     "endpointing": "endpointing (mostly configured wait)",
-    "transcription": "transcription (Deepgram)",
-    "llm_ttft": "LLM first token (Groq)",
-    "tts_ttfb": "TTS first audio (Rumik)",
+    "transcription": "transcription (STT)",
+    "llm_ttft": "LLM first token",
+    "tts_ttfb": "TTS first audio",
 }
 
 
@@ -79,6 +79,19 @@ def turn_rows(chat_ctx: Any) -> list[dict]:
 
         assistant = _metrics_of(item)
         e2e = _ms(assistant.get("e2e_latency"))
+        source = "framework"
+        if e2e is None:
+            # Speech-to-speech sessions record the two timestamps but not the gap
+            # between them, so derive it. Same definition, same clock.
+            started = assistant.get("started_speaking_at")
+            stopped = pending_user.get("stopped_speaking_at")
+            if (
+                isinstance(started, (int, float))
+                and isinstance(stopped, (int, float))
+                and started >= stopped
+            ):
+                e2e = _ms(started - stopped)
+                source = "derived"
         if e2e is None:
             continue
 
@@ -96,6 +109,7 @@ def turn_rows(chat_ctx: Any) -> list[dict]:
                 "llm_ttft": _ms(assistant.get("llm_node_ttft")),
                 "tts_ttfb": _ms(assistant.get("tts_node_ttfb")),
                 "interrupted": bool(getattr(item, "interrupted", False)),
+                "e2e_source": source,
             }
         )
         pending_user = {}
@@ -123,6 +137,7 @@ def summarize(rows: list[dict]) -> dict:
         "turns": len(rows),
         "turns_measured": len(clean),
         "turns_interrupted": len(rows) - len(clean),
+        "e2e_derived": sum(1 for r in clean if r.get("e2e_source") == "derived"),
         "unit": "ms",
     }
     for field in FIELDS:
@@ -156,9 +171,31 @@ def format_table(summary: dict) -> str:
             f"{stat['min']:>9.0f}{stat['max']:>9.0f}{stat['mean']:>9.0f}"
         )
     lines.append("-" * len(header))
-    lines.append(
+    note = (
         f"{summary.get('turns_measured', 0)} turn(s) measured, "
         f"{summary.get('turns_interrupted', 0)} interrupted and excluded. "
         "Milliseconds."
     )
+    derived = summary.get("e2e_derived", 0)
+    if derived:
+        note += f" {derived} end-to-end value(s) derived from speech timestamps."
+    lines.append(note)
     return "\n".join(lines)
+
+
+def config_label(record: dict) -> str:
+    """A short name for the pipeline that produced a call, used to group calls.
+
+    Pooling a cascaded call and a speech-to-speech call into one percentile would
+    describe neither, so the report never does it.
+    """
+    config = record.get("config") or {}
+    mode = config.get("voice_mode") or "unknown"
+    model_config = config.get("llm") or {}
+    provider = model_config.get("provider")
+    model = model_config.get("model")
+    if provider and model:
+        return f"{mode}: {provider} {model}"
+    if provider:
+        return f"{mode}: {provider}"
+    return f"{mode}: unrecorded config"

@@ -116,9 +116,16 @@ flowchart LR
 ## Tech stack
 
 - **Voice framework:** LiveKit Agents (Python), with the official Rumik plugin.
-- **Pipeline:** silero VAD, Deepgram `nova-3` STT, `openai/gpt-oss-120b` on Groq's
-  OpenAI-compatible endpoint, Rumik `mulberry` TTS. Providers are swappable via env
-  (`LLM_MODEL`, `LLM_BASE_URL`).
+- **Pipeline (`VOICE_MODE=cascaded`, the default):** silero VAD, Deepgram `nova-3`
+  STT, `openai/gpt-oss-120b` on Groq's OpenAI-compatible endpoint, Rumik
+  `mulberry` TTS.
+- **Speech to speech (`VOICE_MODE=realtime`):** one OpenAI `gpt-realtime` model
+  replaces STT, LLM, and TTS. Tools, guardrails, persistence, and the dashboard
+  are unchanged, because they sit above the model rather than inside it.
+- **Provider flip:** `LLM_PROVIDER=groq|openai` picks who serves the cascaded chat
+  model; `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY` override any part of it.
+  Only the selected provider's key is read, so a Groq key is never sent to
+  OpenAI. See "Choosing a pipeline" below.
 - **Backend:** FastAPI + SQLModel + SQLite (seeded EHR). Persistence only, never in
   the audio path.
 - **Dashboard realtime:** LiveKit only: `lk.transcription` text streams plus
@@ -142,7 +149,8 @@ web/       Next.js dashboard (components/, hooks/, stores/, lib/)
 
 - Node 20+ and npm
 - [uv](https://docs.astral.sh/uv/) (manages Python 3.12 for the two Python packages)
-- API keys: LiveKit Cloud, Rumik, Deepgram, Groq (OpenAI works as an LLM fallback)
+- API keys: LiveKit Cloud, Rumik, Deepgram, and Groq for the default pipeline.
+  An OpenAI key is needed only for `LLM_PROVIDER=openai` or `VOICE_MODE=realtime`.
 
 ## Setup
 
@@ -177,6 +185,33 @@ Other commands: `make console` (talk to the agent via the local mic, no browser)
 `make verify` (deterministic booking + provider smoke tests), `make latency`
 (latency report, below), `make seed` (reseed).
 
+## Choosing a pipeline
+
+Three configurations, all switched in `agent/.env` with no code change, so they
+can be compared on the same call script instead of argued about:
+
+| `.env` | What runs | Why you would |
+|---|---|---|
+| `VOICE_MODE=cascaded`, `LLM_PROVIDER=groq` | Deepgram to gpt-oss-120b on Groq to Rumik | Default. Groq has the lowest time-to-first-token, the stage a caller feels most. Its free tier is capped at 8000 tokens/min and a 429 mid-call is audible. |
+| `VOICE_MODE=cascaded`, `LLM_PROVIDER=openai` | the same, with `gpt-4.1-mini` | Stronger instruction-following, and no free-tier limit to interrupt a call. Usually slower to first token. |
+| `VOICE_MODE=realtime` | `gpt-realtime`, speech to speech | Nothing between hearing and speaking: no STT hop, no TTS hop, native interruption handling and input noise reduction. Audio tokens cost materially more per minute, and the per-stage breakdown collapses to a single number. |
+
+Confirm a flip before spending a call on it:
+
+```bash
+cd agent && .venv/bin/python scripts/pipeline_smoke_test.py
+```
+
+It follows `LLM_PROVIDER`, and when an OpenAI key is present it also does one
+text-only round trip on `gpt-realtime`, which proves the key, the model name, and
+the websocket path for a few tokens rather than a minute of audio.
+
+Two things the cascaded path has that the realtime path does not: the reply
+cleaning in `receptionist.py` (one question per turn, clock times spelled out),
+which needs text before it is spoken, and a per-stage latency breakdown. Two
+things realtime has that cascaded does not: server-side semantic turn detection,
+and `input_audio_noise_reduction` on the caller's microphone.
+
 ## Measuring latency
 
 The number a caller actually feels is the silence between finishing their
@@ -193,8 +228,12 @@ agent starts speaking
 ```
 
 `e2e` is the whole gap, timed by the LiveKit session itself, so it also carries
-framework overhead that the four stages do not add up to. The timings land in
-each call's JSON under `runs/calls/`, and pooling them is one command:
+framework overhead that the four stages do not add up to. In realtime mode the
+session records when each side started and stopped speaking but not the gap
+between them, so the report derives it from those timestamps and says so.
+
+The timings land in each call's JSON under `runs/calls/`, alongside the config
+that produced them, and pooling them is one command:
 
 ```bash
 make latency          # p50/p95 per stage across every recorded call
@@ -221,6 +260,12 @@ Two things to read carefully:
 - **Interrupted turns are excluded from the stats.** When the caller barges in,
   the gap measures their timing, not the pipeline's. They are still counted and
   reported, never dropped silently.
+
+- **Calls are grouped by the pipeline that produced them.** A percentile pooled
+  across Groq, OpenAI, and speech-to-speech would describe none of them, so the
+  report prints one table per configuration. That grouping is what turns this
+  into an A/B: run the same call script under each config and read the tables
+  side by side.
 
 `scripts/latency_report.py --per-call` breaks it down by call and `--json` emits
 the raw numbers. `scripts/latency_selftest.py` (part of `make verify`) checks the

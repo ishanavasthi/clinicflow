@@ -1,9 +1,10 @@
 """Offline check of the latency extraction (no keys, no network, no audio).
 
-Builds a chat context shaped exactly like a finished call, with the timings the
-framework writes onto each message, and asserts the report reads it correctly:
-the greeting is not a turn, an interrupted reply is excluded from the stats, and
-`pipeline` is `e2e` minus the endpointing wait.
+Builds chat contexts shaped exactly like finished calls, with the timings the
+framework writes onto each message, and asserts the report reads them correctly:
+the greeting is not a turn, an interrupted reply is excluded from the stats,
+`pipeline` is `e2e` minus the endpointing wait, and a speech-to-speech call (no
+`e2e_latency` field, only the two speech timestamps) still gets measured.
 
 Run:  agent/.venv/bin/python scripts/latency_selftest.py
 """
@@ -48,6 +49,42 @@ def build_call() -> ChatContext:
     return ctx
 
 
+def build_realtime_call() -> ChatContext:
+    """A speech-to-speech call: the session records when each side started and
+    stopped speaking, but never the gap, so the gap has to be derived."""
+    ctx = ChatContext.empty()
+    _add(ctx, "user", "hi, are you open on Sunday", {"stopped_speaking_at": 100.0})
+    _add(ctx, "assistant", "We are open Sunday mornings.",
+         {"started_speaking_at": 100.62})
+    _add(ctx, "user", "great, thanks", {"stopped_speaking_at": 110.0})
+    _add(ctx, "assistant", "Happy to help.", {"started_speaking_at": 110.48})
+    return ctx
+
+
+def check_realtime() -> None:
+    rows = turn_latency.turn_rows(build_realtime_call())
+    assert len(rows) == 2, f"expected 2 derived turns, got {len(rows)}"
+    assert rows[0]["e2e"] == 620.0, rows[0]
+    assert rows[0]["e2e_source"] == "derived", rows[0]
+    # No endpointing metric in this mode, so `pipeline` must stay absent, not zero.
+    assert rows[0]["endpointing"] is None and rows[0]["pipeline"] is None, rows[0]
+    summary = turn_latency.summarize(rows)
+    assert summary["e2e_derived"] == 2, summary
+    assert "pipeline" not in summary, "a stage with no data must not be reported"
+    assert "derived" in turn_latency.format_table(summary)
+
+
+def check_config_labels() -> None:
+    cascaded = {"config": {"voice_mode": "cascaded",
+                           "llm": {"provider": "groq", "model": "openai/gpt-oss-120b"}}}
+    realtime_call = {"config": {"voice_mode": "realtime",
+                                "llm": {"provider": "openai-realtime", "model": "gpt-realtime"}}}
+    assert turn_latency.config_label(cascaded) == "cascaded: groq openai/gpt-oss-120b"
+    assert turn_latency.config_label(realtime_call) == "realtime: openai-realtime gpt-realtime"
+    # A call archived before configs were recorded must still group, not crash.
+    assert turn_latency.config_label({}) == "unknown: unrecorded config"
+
+
 def main() -> int:
     rows = turn_latency.turn_rows(build_call())
     assert len(rows) == 3, f"expected 3 answered turns, got {len(rows)}"
@@ -70,8 +107,16 @@ def main() -> int:
     empty = turn_latency.summarize([])
     assert empty["turns"] == 0 and "e2e" not in empty
 
+    assert all(r["e2e_source"] == "framework" for r in rows), rows
+
+    check_realtime()
+    check_config_labels()
+
     print(turn_latency.format_table(summary))
-    print("\nlatency self-test OK (3 turns parsed, 1 interrupted excluded)")
+    print(
+        "\nlatency self-test OK (cascaded: 3 turns, 1 interrupted excluded; "
+        "realtime: 2 derived turns; config labels)"
+    )
     return 0
 
 
