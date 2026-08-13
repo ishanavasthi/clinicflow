@@ -2,7 +2,7 @@
 # For the full stack, run each in its own terminal: `make server`, `make agent`,
 # `make web`. Use `make reset` before a demo for a clean database.
 
-.PHONY: help setup seed reset demo server agent web console verify
+.PHONY: help setup seed reset demo server agent web console verify latency
 
 help:
 	@echo "ClinicFlow commands:"
@@ -14,6 +14,7 @@ help:
 	@echo "  make web      Run the Next.js dashboard on :3000"
 	@echo "  make console  Talk to the agent via the local mic (no browser)"
 	@echo "  make verify   Run the scripted booking + provider smoke tests"
+	@echo "  make latency  Report voice latency (p50/p95) across recorded calls"
 
 setup:
 	cd server && uv venv --python 3.12 .venv && uv pip install -e .
@@ -55,3 +56,9 @@ console:
 verify:
 	cd agent && CLINICFLOW_API_URL=http://localhost:8000 .venv/bin/python scripts/scripted_call_test.py
 	cd agent && .venv/bin/python scripts/pipeline_smoke_test.py
+	cd agent && .venv/bin/python scripts/latency_selftest.py
+
+# What the caller waited, pooled over every call archived in runs/calls/.
+# Add --per-call for a line per call, --json for the raw numbers.
+latency:
+	cd agent && .venv/bin/python scripts/latency_report.py --per-call

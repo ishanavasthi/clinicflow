@@ -20,6 +20,9 @@ clinician handoff, alongside the agent's scope and safety guardrails.
 ## Highlights
 
 - Real-time bidirectional voice with barge-in and an instant cached greeting.
+- Every call is timed: the pause the caller hears is broken down per stage
+  (endpointing, transcription, LLM first token, TTS first audio) and reported
+  as p50/p95 with `make latency`.
 - Live, streaming dashboard: transcript, patient intake, availability and booking,
   a department-routing switchboard, and a conversation timeline, all driven by the
   agent's own tool calls (no scripted animation).
@@ -171,7 +174,57 @@ Open http://localhost:3000, click **Start call**, allow the mic, and talk to Riy
 See `DEMO.md` for a copy-and-speak demo script.
 
 Other commands: `make console` (talk to the agent via the local mic, no browser),
-`make verify` (deterministic booking + provider smoke tests), `make seed` (reseed).
+`make verify` (deterministic booking + provider smoke tests), `make latency`
+(latency report, below), `make seed` (reseed).
+
+## Measuring latency
+
+The number a caller actually feels is the silence between finishing their
+sentence and hearing the agent start to speak. Every call records it per turn,
+so it is a measurement rather than an impression.
+
+```
+caller stops speaking
+  |-- endpointing     VAD plus the configured patience window end the turn
+  |-- transcription   Deepgram returns the final transcript
+  |-- llm_ttft        the LLM produces its first token (tool steps included)
+  |-- tts_ttfb        Rumik returns the first audio chunk
+agent starts speaking
+```
+
+`e2e` is the whole gap, timed by the LiveKit session itself, so it also carries
+framework overhead that the four stages do not add up to. The timings land in
+each call's JSON under `runs/calls/`, and pooling them is one command:
+
+```bash
+make latency          # p50/p95 per stage across every recorded call
+```
+
+```
+stage                                    n      p50      p95      min      max     mean
+---------------------------------------------------------------------------------------
+end to end (heard pause)                 …
+pipeline (e2e - endpointing)             …
+endpointing (mostly configured wait)     …
+transcription (Deepgram)                 …
+LLM first token (Groq)                   …
+TTS first audio (Rumik)                  …
+```
+
+Two things to read carefully:
+
+- **Endpointing is mostly a deliberate wait, not provider latency.** The session
+  sets `min_endpointing_delay=0.8` so the agent sits through a natural pause
+  instead of talking over the caller. That 800 ms is a conversation-quality
+  choice being paid for in latency, and it dominates the total. `pipeline`
+  (`e2e` minus endpointing) is the part engineering can actually shrink.
+- **Interrupted turns are excluded from the stats.** When the caller barges in,
+  the gap measures their timing, not the pipeline's. They are still counted and
+  reported, never dropped silently.
+
+`scripts/latency_report.py --per-call` breaks it down by call and `--json` emits
+the raw numbers. `scripts/latency_selftest.py` (part of `make verify`) checks the
+extraction offline, with no keys and no audio.
 
 ## Deliberate mocks (with real upgrade paths)
 

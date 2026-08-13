@@ -1,9 +1,10 @@
 """ClinicFlow agent worker entrypoint.
 
 Voice loop (M1) plus tools and persistence (M2): a LiveKit AgentSession wiring
-silero VAD, Deepgram STT, gpt-oss-120b on Groq, and Rumik muga TTS. The
+silero VAD, Deepgram STT, gpt-oss-120b on Groq, and Rumik mulberry TTS. The
 receptionist's five function tools persist to the FastAPI server and publish
-agent-state events to the room data channel for the live dashboard.
+agent-state events to the room data channel for the live dashboard. Every call
+is archived with its per-turn latency (see turn_latency.py).
 
 Run:  python main.py dev     (or `console` to talk via the local mic)
 """
@@ -25,6 +26,7 @@ from livekit.agents import (
 )
 from livekit.plugins import deepgram, silero
 
+import turn_latency
 from call_log import build_record, summary_of, write_record
 from llm import build_llm
 from receptionist import Receptionist
@@ -130,6 +132,11 @@ async def entrypoint(ctx: JobContext) -> None:
         # Build the call record once, then archive it to runs/calls/ and store it
         # on the call in SQLite so the history view is self-describing.
         record = build_record(state, session.history, started_at, datetime.now())
+        # Print what the caller waited on this call. `make latency` aggregates the
+        # same numbers across every archived call.
+        summary = record["latency"]["summary"]
+        if summary.get("turns_measured"):
+            logger.info("call latency\n%s", turn_latency.format_table(summary))
         try:
             path = write_record(record)
             logger.info("wrote call record %s", path)

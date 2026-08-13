@@ -1,7 +1,8 @@
 """Persist a JSON record of each call to runs/calls/.
 
-Written at call end: the collected patient details, booking, routing, and the
-full chat transcript, so a session can be reviewed later.
+Written at call end: the collected patient details, booking, routing, the full
+chat transcript, and the per-turn latency the caller actually experienced, so a
+session can be reviewed (and timed) later.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import os
 from datetime import datetime
 from typing import Any
 
+import turn_latency
 from state import CallState
 
 RUNS_CALLS_DIR = os.path.join(
@@ -38,13 +40,20 @@ def _transcript(chat_ctx: Any) -> list[dict]:
     return transcript
 
 
+def _latency(chat_ctx: Any) -> dict:
+    """Per-turn latency plus its summary, or an empty report if the framework
+    reported no timings (an older LiveKit, or a call with no answered turn)."""
+    rows = turn_latency.turn_rows(chat_ctx)
+    return {"turns": rows, "summary": turn_latency.summarize(rows)}
+
+
 def build_record(
     state: CallState,
     chat_ctx: Any,
     started_at: datetime,
     ended_at: datetime,
 ) -> dict:
-    """Build the full call record (patient details, outcome, transcript)."""
+    """Build the full call record (patient details, outcome, transcript, latency)."""
     return {
         "call_id": state.call_id,
         "room": state.room_name,
@@ -60,6 +69,7 @@ def build_record(
         "routed_department": state.routed_department,
         "booking": state.booking,
         "transcript": _transcript(chat_ctx),
+        "latency": _latency(chat_ctx),
     }
 
 
