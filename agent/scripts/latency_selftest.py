@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from livekit.agents.llm import ChatContext, ChatMessage
 
+import turn_clock
 import turn_latency
 
 
@@ -85,6 +86,74 @@ def check_config_labels() -> None:
     assert turn_latency.config_label({}) == "unknown: unrecorded config"
 
 
+class _FakeEvent:
+    def __init__(self, old_state, new_state, created_at):
+        self.old_state, self.new_state, self.created_at = old_state, new_state, created_at
+
+
+class _FakeSession:
+    """Captures handlers the way AgentSession.on would, so the clock can be
+    driven with a scripted call and no audio."""
+
+    def __init__(self):
+        self.handlers = {}
+
+    def on(self, name, handler):
+        self.handlers[name] = handler
+
+    def user(self, old, new, at):
+        self.handlers["user_state_changed"](_FakeEvent(old, new, at))
+
+    def agent(self, old, new, at):
+        self.handlers["agent_state_changed"](_FakeEvent(old, new, at))
+
+
+def check_session_clock() -> None:
+    session = _FakeSession()
+    clock = turn_clock.SessionTurnClock()
+    clock.attach(session)
+
+    # The greeting: the agent speaks before anyone has said anything to it.
+    session.agent("initializing", "speaking", 10.0)
+    assert clock.rows() == [], "an unprompted greeting is not a response time"
+
+    session.user("speaking", "listening", 20.0)
+    session.agent("listening", "speaking", 20.9)
+    session.user("speaking", "listening", 30.0)
+    session.agent("listening", "speaking", 31.4)
+
+    # A state flip that is not a stop-to-start pair must not open a turn.
+    session.user("listening", "away", 40.0)
+    session.agent("thinking", "listening", 41.0)
+
+    rows = clock.rows()
+    assert len(rows) == 2, f"expected 2 measured turns, got {len(rows)}"
+    assert rows[0]["e2e"] == 900.0 and rows[1]["e2e"] == 1400.0, rows
+    assert all(r["e2e_source"] == "session_events" for r in rows), rows
+    # Stage fields must read as absent, never as zero.
+    assert all(r["llm_ttft"] is None and r["pipeline"] is None for r in rows), rows
+
+    summary = turn_latency.summarize(rows)
+    assert summary["e2e"]["p50"] == 900.0 and summary["e2e"]["p95"] == 1400.0
+    assert "llm_ttft" not in summary, "a stage with no data must not be reported"
+
+
+def check_clock_ignores_bad_pairs() -> None:
+    session = _FakeSession()
+    clock = turn_clock.SessionTurnClock()
+    clock.attach(session)
+    # Clock skew or an out-of-order event would give a negative gap; drop it
+    # rather than record a nonsense turn.
+    session.user("speaking", "listening", 50.0)
+    session.agent("listening", "speaking", 49.5)
+    assert clock.rows() == [], "a negative gap is not a measurement"
+    # One caller stop cannot pay for two agent starts.
+    session.user("speaking", "listening", 60.0)
+    session.agent("listening", "speaking", 60.5)
+    session.agent("listening", "speaking", 61.9)
+    assert len(clock.rows()) == 1, clock.rows()
+
+
 def main() -> int:
     rows = turn_latency.turn_rows(build_call())
     assert len(rows) == 3, f"expected 3 answered turns, got {len(rows)}"
@@ -111,11 +180,14 @@ def main() -> int:
 
     check_realtime()
     check_config_labels()
+    check_session_clock()
+    check_clock_ignores_bad_pairs()
 
     print(turn_latency.format_table(summary))
     print(
         "\nlatency self-test OK (cascaded: 3 turns, 1 interrupted excluded; "
-        "realtime: 2 derived turns; config labels)"
+        "realtime: 2 derived turns; session clock: 2 turns, greeting and bad "
+        "pairs rejected; config labels)"
     )
     return 0
 

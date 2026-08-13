@@ -117,6 +117,25 @@ def turn_rows(chat_ctx: Any) -> list[dict]:
     return rows
 
 
+def total_only_row(turn: int, e2e_ms: float, source: str) -> dict:
+    """A turn where only the total is known, with every stage explicitly absent.
+
+    Speech-to-speech has no separate stages to time, so the stage fields must
+    read as "not measured" rather than quietly become zero.
+    """
+    return {
+        "turn": turn,
+        "e2e": e2e_ms,
+        "pipeline": None,
+        "endpointing": None,
+        "transcription": None,
+        "llm_ttft": None,
+        "tts_ttfb": None,
+        "interrupted": False,
+        "e2e_source": source,
+    }
+
+
 def percentile(values: list[float], pct: float) -> float:
     """Nearest-rank percentile. Small samples make interpolation a fiction."""
     if not values:

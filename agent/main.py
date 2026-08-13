@@ -36,6 +36,7 @@ from livekit.plugins import deepgram, silero
 
 import llm as llm_provider
 import realtime
+import turn_clock
 import turn_latency
 from call_log import build_record, summary_of, write_record
 from receptionist import Receptionist
@@ -160,6 +161,12 @@ async def entrypoint(ctx: JobContext) -> None:
 
     session = _build_session(mode, ctx.proc.userdata["vad"])
 
+    # Times the caller's wait from session events. In cascaded mode this is a
+    # cross-check on the framework's own numbers; in realtime mode, where the
+    # framework records none, it is the only measurement there is.
+    clock = turn_clock.SessionTurnClock()
+    clock.attach(session)
+
     # A provider hiccup (most likely a Groq rate limit) must never leave the agent
     # silent. Speak a short fallback, debounced so retries do not stack.
     last_fallback = {"ts": 0.0}
@@ -197,6 +204,7 @@ async def entrypoint(ctx: JobContext) -> None:
             started_at,
             datetime.now(),
             config=_pipeline_config(mode),
+            clock_rows=clock.rows(),
         )
         # Print what the caller waited on this call. `make latency` aggregates the
         # same numbers across every archived call.

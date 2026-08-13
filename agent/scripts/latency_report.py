@@ -114,12 +114,19 @@ def main() -> int:
             for call in group:
                 call_summary = turn_latency.summarize(call["turns"])
                 e2e = call_summary.get("e2e", {})
-                print(
+                line = (
                     f"  {os.path.basename(call['path']):44}"
                     f"{call_summary['turns_measured']:>3} turns   "
                     f"e2e p50 {e2e.get('p50', 0):>6.0f} ms   "
                     f"p95 {e2e.get('p95', 0):>6.0f} ms"
                 )
+                # Where both measurements exist, show them together: the clock is
+                # only trustworthy on realtime calls if it agrees here.
+                clock = (call["record"].get("latency") or {}).get("session_clock") or {}
+                clock_e2e = (clock.get("summary") or {}).get("e2e")
+                if clock_e2e:
+                    line += f"   [clock p50 {clock_e2e['p50']:>6.0f} ms]"
+                print(line)
             print()
         print(turn_latency.format_table(turn_latency.summarize(turns)))
     return 0
