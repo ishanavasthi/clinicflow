@@ -1,7 +1,8 @@
 """Persist a JSON record of each call to runs/calls/.
 
-Written at call end: the collected patient details, booking, routing, and the
-full chat transcript, so a session can be reviewed later.
+Written at call end: the collected patient details, booking, routing, the full
+chat transcript, and the per-turn latency the caller actually experienced, so a
+session can be reviewed (and timed) later.
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import os
 from datetime import datetime
 from typing import Any
 
+import turn_latency
 from state import CallState
 
 RUNS_CALLS_DIR = os.path.join(
@@ -38,16 +40,49 @@ def _transcript(chat_ctx: Any) -> list[dict]:
     return transcript
 
 
+def _latency(chat_ctx: Any, clock_rows: list[dict] | None) -> dict:
+    """Per-turn latency from whichever source measured this call.
+
+    The framework's own per-message timings are preferred, since they carry the
+    stage breakdown. Speech-to-speech records none, so the session-event clock
+    stands in with the total alone. When both exist (cascaded), the clock is kept
+    alongside as a cross-check rather than thrown away.
+    """
+    rows = turn_latency.turn_rows(chat_ctx)
+    clock_rows = clock_rows or []
+    if not rows:
+        return {
+            "turns": clock_rows,
+            "summary": turn_latency.summarize(clock_rows),
+        }
+    return {
+        "turns": rows,
+        "summary": turn_latency.summarize(rows),
+        "session_clock": {
+            "turns": clock_rows,
+            "summary": turn_latency.summarize(clock_rows),
+        },
+    }
+
+
 def build_record(
     state: CallState,
     chat_ctx: Any,
     started_at: datetime,
     ended_at: datetime,
+    config: dict | None = None,
+    clock_rows: list[dict] | None = None,
 ) -> dict:
-    """Build the full call record (patient details, outcome, transcript)."""
+    """Build the full call record (patient details, outcome, transcript, latency).
+
+    `config` is the pipeline that produced the call (voice mode, models). It is
+    stored alongside the timings so a later comparison groups by configuration
+    instead of pooling two different pipelines into one percentile.
+    """
     return {
         "call_id": state.call_id,
         "room": state.room_name,
+        "config": config or {},
         "started_at": started_at.isoformat(),
         "ended_at": ended_at.isoformat(),
         "patient": {
@@ -60,6 +95,7 @@ def build_record(
         "routed_department": state.routed_department,
         "booking": state.booking,
         "transcript": _transcript(chat_ctx),
+        "latency": _latency(chat_ctx, clock_rows),
     }
 
 
