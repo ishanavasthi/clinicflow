@@ -17,6 +17,23 @@ with the dashboard updating live and the recording played back from history.
 A red-flag symptom skips intake and routes straight to the Emergency ward with a
 clinician handoff, alongside the agent's scope and safety guardrails.
 
+## Screenshots
+
+![ClinicFlow dashboard: live call console with the department switchboard](docs/screenshots/dashboard.webp)
+
+The live call console. During a call these panels stream the transcript, patient
+intake, availability and booking, and department routing as the agent's tool
+calls land.
+
+![Call history with one booked call](docs/screenshots/history.webp)
+
+![Call detail: transcript, patient record, and booking outcome](docs/screenshots/call-detail.webp)
+
+History persists every call to SQLite: transcript, patient record, booking, and
+routing, with recording playback. The call shown here was placed by the
+scripted verification harness (`make verify`), so the booking row and timeline
+events are real server state, not mockups.
+
 ## Highlights
 
 - Real-time bidirectional voice with barge-in and an instant cached greeting.
