@@ -30,12 +30,16 @@ from evals.budget import Budget, BudgetExceeded
 from evals.retry import ATTEMPTS, RETRYABLE_STATUS, retry_delay
 
 ROOT = Path(__file__).resolve().parents[1]
-# Both applications use loose top-level modules. These names do not overlap in
-# the imports used here; isolate the server database via FastAPI dependency
-# override rather than mutating its module-level engine.
+# Both applications use loose top-level modules. Isolate the server database
+# via a FastAPI dependency override rather than mutating its module-level
+# engine.
+# `main` exists in both; the server's must win, whatever was imported first.
 for directory in (ROOT / "agent", ROOT / "server"):
-    if str(directory) not in sys.path:
-        sys.path.insert(0, str(directory))
+    while str(directory) in sys.path:
+        sys.path.remove(str(directory))
+    sys.path.insert(0, str(directory))
+if "main" in sys.modules and not str(getattr(sys.modules["main"], "__file__", "")).startswith(str(ROOT / "server")):
+    del sys.modules["main"]
 
 from db import get_session  # noqa: E402
 from main import app as server_app  # noqa: E402
@@ -56,6 +60,11 @@ AGENT_DEFAULTS = {
     "reasoning_effort": "low",
     "temperature": 0.2,
 }
+# Wrapper replies that mean the tool did not do what was asked. The judge sees
+# this flag; it is a trace convenience, never a scoring input on its own.
+REFUSAL = (r"^(Could not|Booking did not|Do not offer|The caller has not|No open slots|"
+           r"No unambiguous|That booking was not made|Booking status is unknown|"
+           r"Emergency escalation is active|Reconcile)")
 # Reserve per agent request before sending; the provider-reported cost is
 # charged after the response.
 AGENT_RESERVE_USD = 0.01
@@ -67,6 +76,15 @@ def load_secrets() -> None:
     for name in ("openrouter.env", "anthropic.env"):
         if (SECRETS_DIR / name).exists():
             load_dotenv(SECRETS_DIR / name, override=False)
+
+
+def _clinic_clock():
+    """The server's injectable clinic clock, when this revision has one."""
+    try:
+        from clock import clinic_now
+    except ImportError:
+        return None
+    return clinic_now
 
 
 def _tool_schemas(agent: Receptionist) -> list[dict]:
@@ -290,6 +308,12 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
         with Session(engine) as session:
             yield session
     server_app.dependency_overrides[get_session] = session_override
+    clock_dependency = _clinic_clock()
+    if clock_dependency is not None:
+        # Past-slot filtering must use the fixture's clock, not the wall clock.
+        from datetime import datetime as _datetime
+        fixed_now = _datetime.fromisoformat(fixed_clock).replace(tzinfo=None)
+        server_app.dependency_overrides[clock_dependency] = lambda: fixed_now
     transport = httpx.ASGITransport(app=server_app)
     client = FaultClient(engine=engine, fault=scenario.get("fault"), emit=emit, transport=transport)
     agent = EvaluationReceptionist(state, client, TracePublisher(emit))
@@ -315,7 +339,7 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
         try:
             args = _call_arguments(raw, name, schemas_by_name, agent)
             output = await getattr(agent, name)(None, **args)
-            ok = not bool(re.search(r"^(Could not|Booking did not|Do not offer|The caller has not|No open slots)", str(output)))
+            ok = not bool(re.search(REFUSAL, str(output)))
             emit("tool_result", name=name, call_id=call_id, result=output, ok=ok)
         except Exception as exc:
             output = f"Rejected tool call: {type(exc).__name__}: {exc}"
@@ -410,6 +434,8 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
         result["final_state"] = read_final_state(engine, state)
         await client.aclose()
         server_app.dependency_overrides.pop(get_session, None)
+        if clock_dependency is not None:
+            server_app.dependency_overrides.pop(clock_dependency, None)
         engine.dispose()
         if owned_temp:
             owned_temp.cleanup()

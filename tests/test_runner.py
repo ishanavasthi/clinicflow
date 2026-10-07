@@ -22,7 +22,7 @@ def _scenario(*, fault=None, script=None):
             {"name": "update_intake", "arguments": {"field": "phone", "value": "9876543210"}},
             {"name": "update_intake", "arguments": {"field": "symptoms", "value": "headache"}},
             {"name": "check_availability", "arguments": {"department": "General Medicine"}},
-            {"name": "book_appointment", "arguments": {"option": 1}},
+            {"user": "The first one, please.", "name": "book_appointment", "arguments": {"option": 1}},
         ],
     }
 
@@ -51,14 +51,24 @@ class RunnerTests(unittest.TestCase):
         failed = [e for e in run["events"] if e["kind"] == "tool_result" and e["name"] == "book_appointment"]
         self.assertEqual(len(failed), 1)
         self.assertFalse(failed[0]["ok"])
-        self.assertIn("injected booking outage", failed[0]["result"])
+        # Nothing committed and the receipt lookup finds nothing, so the agent is
+        # told the outcome is unknown rather than that it failed.
+        self.assertIn("Booking status is unknown", failed[0]["result"])
 
-    def test_lost_response_leaves_durable_booking_and_failed_tool_result(self):
+    def test_lost_response_is_reconciled_from_the_request_receipt(self):
         run = asyncio.run(run_scenario(_scenario(fault={"operation": "book", "trigger": 1, "effect": "commit_then_raise", "times": 1}), {}, mode="scripted"))
         self.assertEqual(len(run["final_state"]["appointments"]), 1)
         result = next(e for e in run["events"] if e["kind"] == "tool_result" and e["name"] == "book_appointment")
+        self.assertTrue(result["ok"])
+        self.assertIn("Booked:", result["result"])
+
+    def test_booking_without_a_patient_choice_is_refused(self):
+        script = _scenario()["script"]
+        script[-1] = {"name": "book_appointment", "arguments": {"option": 1}}
+        run = asyncio.run(run_scenario(_scenario(script=script), {}, mode="scripted"))
+        self.assertEqual(run["final_state"]["appointments"], [])
+        result = next(e for e in run["events"] if e["kind"] == "tool_result" and e["name"] == "book_appointment")
         self.assertFalse(result["ok"])
-        self.assertIn("lost booking response", result["result"])
 
     def test_missing_model_credentials_are_blocked_not_scored_as_live(self):
         run = asyncio.run(run_scenario(_scenario(), {"model": "example", "api_key_env": "CLINICFLOW_NONEXISTENT_TEST_KEY"}, mode="live"))
