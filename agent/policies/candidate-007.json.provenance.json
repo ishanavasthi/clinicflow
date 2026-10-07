@@ -1,0 +1,26 @@
+{
+  "base_policy_hash": "8b355da487cb8067293394aeef805528b04a32c41761f0769448781b26e88ac3",
+  "candidate_policy_hash": "0d0837f4743534c6eb307c9865e50922ca89eb3e929c22989850c4b1c4496060",
+  "changed_keys": [
+    "system_addendum"
+  ],
+  "evidence_ids": [
+    "e0018",
+    "e0019",
+    "e0020",
+    "e0024",
+    "e0025"
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_hash": "f378f04ed2886a6300b89a7a5e21e8d0144ae67df7255a8fa8940b78f1b69b86",
+  "proposal_id": "S15-past-date-refusal-no-fictitious-handoff-v1",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S15-t04-live"
+  ],
+  "source_summary_hash": "1670ab3b8566314383111766e156be29e523907d728ed105fb9fd40072429f4d"
+}
