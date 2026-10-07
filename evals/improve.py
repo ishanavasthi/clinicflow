@@ -6,13 +6,16 @@ import json
 import os
 import tempfile
 import time
-import urllib.error
-import urllib.request
+from collections import Counter
 from pathlib import Path
 from string import Formatter
 
-from .retry import ATTEMPTS, RETRYABLE_STATUS, retry_delay
+from .budget import Budget, anthropic_cost
 from .contracts import content_hash, validate_run, validate_scorecard
+
+GENERATOR_MODEL = "claude-opus-5-5"
+GENERATOR_EFFORT = "high"
+MAX_SOURCE_RUNS = 4
 
 ALLOWED_KEYS = frozenset({"system_addendum", "emergency_response", "availability_error", "no_slots", "booking_error"})
 MAX_CHANGED_KEYS = 2
@@ -138,15 +141,19 @@ def validate_proposal(proposal: dict, policy: dict, findings: list[dict] | None 
     if not isinstance(evidence_ids, list) or not evidence_ids or any(not isinstance(x, str) or not x for x in evidence_ids) or len(evidence_ids) != len(set(evidence_ids)):
         raise ValueError("proposal needs unique evidence IDs")
     if findings is not None:
-        sources = {item["run_id"]: set(item["evidence_ids"]) for item in findings}
+        # A proposal may cite any event in a supplied failed trace, not only
+        # the events a scorecard criterion happened to reference.
+        sources = {item["run_id"]: set(item["evidence_ids"]) | {e["id"] for e in item.get("events", [])}
+                   for item in findings}
         if not set(source_ids) <= sources.keys() or not set(evidence_ids) <= set().union(*(sources[s] for s in source_ids)):
             raise ValueError("proposal cites absent failure or evidence")
     if not isinstance(proposal.get("root_cause_hypothesis"), str) or not proposal["root_cause_hypothesis"].strip():
         raise ValueError("proposal needs root-cause hypothesis")
     generator = proposal.get("generator")
-    if not isinstance(generator, dict) or generator.get("kind") not in ("openai_compatible_api", "manual"):
+    if not isinstance(generator, dict) or generator.get("kind") not in ("anthropic_api", "openai_compatible_api", "manual"):
         raise ValueError("proposal needs explicit generator attribution")
-    metadata = ("model", "endpoint") if generator["kind"] == "openai_compatible_api" else ("author",)
+    metadata = {"anthropic_api": ("model",), "openai_compatible_api": ("model", "endpoint"),
+                "manual": ("author",)}[generator["kind"]]
     if any(not isinstance(generator.get(key), str) or not generator[key].strip() for key in metadata):
         raise ValueError("generator attribution is incomplete")
     for key in ("expected_effects", "regression_risks", "validation_requirements"):
@@ -168,42 +175,117 @@ def validate_proposal(proposal: dict, policy: dict, findings: list[dict] | None 
     validate_policy(candidate)
 
 
-def _chat_completion(url: str, model: str, api_key: str, messages: list[dict]) -> dict:
-    request = urllib.request.Request(url.rstrip("/") + "/chat/completions",
-        data=json.dumps({"model": model, "temperature": 0, "response_format": {"type": "json_object"}, "messages": messages}).encode(),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, method="POST")
-    for attempt in range(ATTEMPTS):
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                payload = json.load(response)
+GENERATOR_SYSTEM = """You improve a synthetic clinic scheduling voice agent from its own failed
+evaluation runs. You may change only the agent's response-policy text: the
+system prompt addendum and the tool-response templates listed in allowed_keys.
+You cannot change code, tools, scenarios, the rubric, or the evaluator.
+
+Ground truth about the system: route_to_department only records routing on a
+staff dashboard; there is no call transfer, live handoff, or notification.
+There is no callback system and no cancellation or rescheduling tool. A booking
+exists only if book_appointment returned ok true.
+
+Diagnose the root cause the failed traces share, then propose the smallest
+policy text change that removes it. Prefer fixing the template that causes the
+behaviour over adding general advice. Keep placeholders exactly as the
+original field uses them. Change at most two fields. In `changes`, `before`
+must be the field's current text verbatim and `after` the full replacement.
+Cite only run IDs and evidence IDs that appear in the supplied failures. Name
+regression risks honestly: behaviour that currently passes and might break."""
+
+PROPOSAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "proposal_id": {"type": "string"},
+        "source_run_ids": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "root_cause_hypothesis": {"type": "string"},
+        "changes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "field": {"type": "string", "enum": sorted(ALLOWED_KEYS)},
+                    "before": {"type": "string"},
+                    "after": {"type": "string"},
+                },
+                "required": ["field", "before", "after"],
+                "additionalProperties": False,
+            },
+        },
+        "expected_effects": {"type": "array", "items": {"type": "string"}},
+        "regression_risks": {"type": "array", "items": {"type": "string"}},
+        "validation_requirements": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["proposal_id", "source_run_ids", "evidence_ids", "root_cause_hypothesis", "changes",
+                 "expected_effects", "regression_risks", "validation_requirements"],
+    "additionalProperties": False,
+}
+
+
+def select_failures(findings: list[dict], limit: int = MAX_SOURCE_RUNS) -> list[dict]:
+    """Pick the most common failure signature and up to `limit` traces of it,
+    preferring different scenarios so the fix is not tailored to one script."""
+    def signature(item: dict) -> str:
+        return ",".join(sorted(item["critical_failures"])) or "below_pass:" + ",".join(
+            sorted(c["id"] for c in item["criteria"]))
+    counts = Counter(signature(item) for item in findings)
+    target = max(counts, key=lambda key: (counts[key], key))
+    matching = sorted((item for item in findings if signature(item) == target), key=lambda i: (i["score"], i["run_id"]))
+    chosen, scenarios = [], set()
+    for item in matching:
+        if item["scenario_id"] not in scenarios:
+            chosen.append(item)
+            scenarios.add(item["scenario_id"])
+    for item in matching:
+        if len(chosen) >= limit:
             break
-        except urllib.error.HTTPError as exc:
-            if exc.code not in RETRYABLE_STATUS or attempt == ATTEMPTS - 1:
-                raise
-            time.sleep(retry_delay(exc.headers, attempt))
-    return json.loads(payload["choices"][0]["message"]["content"])
+        if item not in chosen:
+            chosen.append(item)
+    return chosen[:limit]
 
 
-def generate(summary: dict, policy: dict, *, api_url: str, model: str, api_key: str) -> dict:
+def _compact(item: dict) -> dict:
+    from .judge import compact_events
+    return {"run_id": item["run_id"], "scenario_id": item["scenario_id"], "score": item["score"],
+            "critical_failures": item["critical_failures"], "evidence_ids": item["evidence_ids"],
+            "failed_criteria": [{k: c.get(k) for k in ("id", "score", "reason", "evidence")} for c in item["criteria"]],
+            "events": compact_events({"events": item["events"]}),
+            "appointments": item["final_state"].get("appointments", [])}
+
+
+def generate(summary: dict, policy: dict, *, model: str = GENERATOR_MODEL, budget: Budget | None = None,
+             client=None) -> dict:
+    import anthropic
+    budget = budget or Budget(None)
     findings = failed_evidence(summary)
     validate_policy(policy)
-    # Bound prompt size while retaining complete selected trace and its score evidence.
-    selected = min(findings, key=lambda item: (item["score"], item["run_id"]))
-    if len(json.dumps(selected)) > 100_000:
-        raise ValueError("selected failure trace exceeds generator budget")
-    system = ("You propose one small policy text change for a synthetic clinic scheduling agent. "
-              "Return JSON only with schema_version=1, proposal_id, source_run_ids, evidence_ids, "
-              "base_policy_hash, root_cause_hypothesis, changes as field:{before,after}, "
-              "expected_effects, regression_risks, validation_requirements, generator. "
-              "Change at most two allowed string fields. Preserve all unrelated content. "
-              "Cite only the supplied failed run and its evidence IDs. Do not edit evaluation data.")
-    payload = {"policy": policy, "base_policy_hash": content_hash(policy), "allowed_keys": sorted(ALLOWED_KEYS), "failed_run": selected}
-    proposal = _chat_completion(api_url, model, api_key, [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(payload)}])
-    if not isinstance(proposal, dict):
-        raise ValueError("generator returned non-object")
-    # Generator identity is written by this CLI, never trusted from model output.
-    proposal["generator"] = {"kind": "openai_compatible_api", "model": model, "endpoint": api_url.rstrip("/")}
-    validate_proposal(proposal, policy, [selected])
+    selected = select_failures(findings)
+    payload = {"policy": policy, "allowed_keys": sorted(ALLOWED_KEYS),
+               "failures": [_compact(item) for item in selected]}
+    if len(json.dumps(payload)) > 200_000:
+        raise ValueError("selected failure traces exceed generator budget")
+    budget.check(0.5, role="generator")
+    client = client or anthropic.Anthropic()
+    message = client.messages.create(
+        model=model, max_tokens=16000, system=GENERATOR_SYSTEM,
+        messages=[{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        output_config={"effort": GENERATOR_EFFORT, "format": {"type": "json_schema", "schema": PROPOSAL_SCHEMA}},
+    )
+    budget.add(anthropic_cost(model, message.usage.model_dump()), "generator")
+    if message.stop_reason != "end_turn":
+        raise ValueError(f"generator stopped with {message.stop_reason}")
+    raw = json.loads(next(b.text for b in message.content if b.type == "text"))
+    changes = {}
+    for change in raw.pop("changes"):
+        if change["field"] in changes:
+            raise ValueError("generator changed one field twice")
+        changes[change["field"]] = {"before": change["before"], "after": change["after"]}
+    # Identity, base hash and schema version are written by this CLI, never
+    # trusted from model output.
+    proposal = {**raw, "changes": changes, "schema_version": 1, "base_policy_hash": content_hash(policy),
+                "generator": {"kind": "anthropic_api", "model": model, "effort": GENERATOR_EFFORT}}
+    validate_proposal(proposal, policy, selected)
     return proposal
 
 
@@ -235,8 +317,8 @@ def main() -> int:
     gen.add_argument("--summary", required=True)
     gen.add_argument("--policy", required=True)
     gen.add_argument("--output", required=True)
-    gen.add_argument("--api-url", default=os.getenv("CLINICFLOW_IMPROVER_BASE_URL") or os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1")
-    gen.add_argument("--model", default=os.getenv("CLINICFLOW_IMPROVER_MODEL"))
+    gen.add_argument("--model", default=GENERATOR_MODEL)
+    gen.add_argument("--budget-usd", type=float, default=0.5)
     apply_parser = sub.add_parser("apply")
     apply_parser.add_argument("--proposal", required=True)
     apply_parser.add_argument("--policy", required=True)
@@ -244,12 +326,13 @@ def main() -> int:
     apply_parser.add_argument("--output", required=True)
     args = parser.parse_args()
     if args.command == "generate":
-        api_key = os.getenv("CLINICFLOW_IMPROVER_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
-        if not args.model or not api_key:
-            parser.error("generation requires --model and CLINICFLOW_IMPROVER_API_KEY, OPENAI_API_KEY, or LLM_API_KEY")
-        proposal = generate(read_json(args.summary), read_json(args.policy), api_url=args.api_url, model=args.model, api_key=api_key)
+        from dotenv import load_dotenv
+        load_dotenv(Path.home() / ".secrets" / "anthropic.env", override=False)
+        budget = Budget(args.budget_usd)
+        proposal = generate(read_json(args.summary), read_json(args.policy), model=args.model, budget=budget)
         _write_new(args.output, proposal)
-        print(json.dumps({"proposal": args.output, "proposal_id": proposal["proposal_id"]}))
+        print(json.dumps({"proposal": args.output, "proposal_id": proposal["proposal_id"],
+                          "source_run_ids": proposal["source_run_ids"], "budget": budget.summary()}))
     else:
         provenance = apply(read_json(args.proposal), read_json(args.policy), args.output, evidence_summary=read_json(args.summary))
         print(json.dumps(provenance))

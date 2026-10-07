@@ -34,9 +34,13 @@ FACT_QUESTIONS = {
     "name": re.compile(r"\bname\b", re.IGNORECASE),
     "age": re.compile(r"\bage\b|how old", re.IGNORECASE),
     "phone": re.compile(r"phone|mobile|contact number|\bnumber\b", re.IGNORECASE),
-    "symptoms": re.compile(r"symptom|reason|what brings|concern|problem|complaint|what.{0,20}(?:wrong|issue)", re.IGNORECASE),
+    "symptoms": re.compile(r"symptom|reason|what brings|concern|problem|complaint|describe|experienc|what.{0,20}(?:wrong|issue)", re.IGNORECASE),
     "department": re.compile(r"department|specialt", re.IGNORECASE),
 }
+
+CONFIRMATION = re.compile(r"confirm|correct|right\?|is that", re.IGNORECASE)
+# A patient repeats their slot choice if the agent re-offers, up to this many times.
+MAX_SLOT_CHOICES = 3
 
 FACT_ANSWERS = {
     "name": "My name is {}.",
@@ -56,6 +60,7 @@ class ScriptedPatient:
         self.policy = scenario.get("policy") or {}
         self.facts = {k: str(v) for k, v in (scenario.get("patient") or {}).items() if str(v or "").strip()}
         self.used: set[str] = set()
+        self.slot_choices = 0
         self.unmatched: str | None = None
 
     def _fact_reply(self, text: str) -> str | None:
@@ -64,7 +69,7 @@ class ScriptedPatient:
         asked = [field for field, pattern in FACT_QUESTIONS.items() if field in self.facts and pattern.search(text)]
         if not asked:
             return None
-        if all(self._read_back(text, field) for field in asked):
+        if CONFIRMATION.search(text) and all(self._read_back(text, field) for field in asked):
             return "Yes, that's right."
         return " ".join(FACT_ANSWERS[field].format(self.facts[field]) for field in asked)
 
@@ -83,18 +88,21 @@ class ScriptedPatient:
             return fact
         for index, rule in enumerate(self.policy.get("rules", [])):
             rule_id = str(rule.get("id", index))
-            if rule.get("once", True) and rule_id in self.used:
+            answer = rule.get("reply")
+            choosing = answer == "__FIRST_OFFERED_TIME__"
+            # Slot choices repeat when the agent re-offers; other rules answer once.
+            if rule.get("once", True) and rule_id in self.used and not choosing:
                 continue
             pattern = rule.get("match") or rule.get("when")
             if not pattern or not re.search(pattern, assistant_text, re.IGNORECASE):
                 continue
-            answer = rule.get("reply")
-            if answer == "__FIRST_OFFERED_TIME__":
+            if choosing:
                 # Times spoken without a real availability result cannot be
                 # chosen; the judge and state checks see any fabricated slot.
-                if not offered_slots:
+                if not offered_slots or self.slot_choices >= MAX_SLOT_CHOICES:
                     continue
                 self.used.add(rule_id)
+                self.slot_choices += 1
                 return f"The first time, {offered_slots[0]['when']}, please. Please book it."
             self.used.add(rule_id)
             if answer is None:

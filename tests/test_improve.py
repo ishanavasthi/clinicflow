@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from evals.contracts import content_hash
@@ -40,11 +41,35 @@ def proposal():
             "generator": {"kind": "openai_compatible_api", "model": "test-model", "endpoint": "https://example.invalid/v1"}}
 
 
+def model_output():
+    """What the generator model returns: changes as a list, no CLI-owned fields."""
+    value = {k: v for k, v in proposal().items() if k not in ("schema_version", "base_policy_hash", "generator")}
+    value["changes"] = [{"field": k, **v} for k, v in value["changes"].items()]
+    return value
+
+
+class FakeClient:
+    """Stands in for anthropic.Anthropic; records the request it receives."""
+    def __init__(self, output):
+        outer = self
+
+        class Messages:
+            request = None
+
+            def create(self, **request):
+                Messages.request = request
+                usage = SimpleNamespace(model_dump=lambda: {"input_tokens": 100, "output_tokens": 50})
+                return SimpleNamespace(stop_reason="end_turn", usage=usage,
+                                       content=[SimpleNamespace(type="text", text=json.dumps(output))])
+        self.messages = Messages()
+
+
 class ImproveTests(unittest.TestCase):
     def test_failed_trace_drives_generator_and_apply_is_immutable(self):
-        with patch("evals.improve._chat_completion", return_value=proposal()) as mocked:
-            generated = generate(failure(), POLICY, api_url="https://example.invalid/v1", model="test-model", api_key="fake")
-        self.assertIn("fictitious transfer", mocked.call_args.args[3][1]["content"])
+        client = FakeClient(model_output())
+        generated = generate(failure(), POLICY, model="claude-opus-5-5", client=client)
+        self.assertIn("fictitious transfer", client.messages.request["messages"][0]["content"])
+        self.assertEqual(generated["generator"], {"kind": "anthropic_api", "model": "claude-opus-5-5", "effort": "high"})
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "candidate.json"
             provenance = apply(generated, POLICY, path, evidence_summary=failure())
