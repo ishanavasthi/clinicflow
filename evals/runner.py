@@ -26,6 +26,7 @@ import httpx
 from evals.contracts import SCHEMA_VERSION, content_hash, validate_run
 from evals.fixtures import FIXED_CLOCK, build_fixture, read_final_state
 from evals.patients import PatientPolicyError, ScriptedPatient
+from evals.budget import Budget, BudgetExceeded
 from evals.retry import ATTEMPTS, RETRYABLE_STATUS, retry_delay
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +42,31 @@ from main import app as server_app  # noqa: E402
 from receptionist import Receptionist  # noqa: E402
 from server_client import ServerClient  # noqa: E402
 from state import CallState  # noqa: E402
+
+
+# The agent under test is the model the cascaded voice path ships with
+# (gpt-oss-120b, low reasoning effort), served through OpenRouter and pinned to
+# one host with fallbacks off so baseline and candidate never differ by host.
+AGENT_DEFAULTS = {
+    "provider": "openrouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "model": "openai/gpt-oss-120b",
+    "host": "Cerebras",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "reasoning_effort": "low",
+    "temperature": 0.2,
+}
+# Reserve per agent request before sending; the provider-reported cost is
+# charged after the response.
+AGENT_RESERVE_USD = 0.01
+SECRETS_DIR = Path.home() / ".secrets"
+
+
+def load_secrets() -> None:
+    from dotenv import load_dotenv
+    for name in ("openrouter.env", "anthropic.env"):
+        if (SECRETS_DIR / name).exists():
+            load_dotenv(SECRETS_DIR / name, override=False)
 
 
 def _tool_schemas(agent: Receptionist) -> list[dict]:
@@ -164,7 +190,7 @@ def _version(package: str) -> str | None:
 def _manifest(scenario: dict, *, mode: str, config: dict, suite_hash: str, fixed_clock: str) -> dict:
     from prompts import SYSTEM_PROMPT
     from policy import load_policy
-    from evals.judge import SYSTEM as JUDGE_PROMPT
+    from evals.judge import JUDGE_EFFORT, SYSTEM as JUDGE_PROMPT
     from evals.scoring import EVALUATOR_VERSION
     policy = load_policy()
     effective_prompt = SYSTEM_PROMPT + ("\n\n" + policy["system_addendum"] if policy["system_addendum"] else "")
@@ -174,19 +200,20 @@ def _manifest(scenario: dict, *, mode: str, config: dict, suite_hash: str, fixed
     )]
     source_paths += [ROOT / "server" / part for part in ("models.py", "routes/appointments.py", "routes/patients.py")]
     settings = {"temperature": config.get("temperature", 0.2), "parallel_tool_calls": False,
-                "reasoning_effort": config.get("reasoning_effort")}
+                "reasoning_effort": config.get("reasoning_effort"), "host": config.get("host"),
+                "host_fallbacks": False}
     return {
         "code_revision": _revision(), "source_hash": _hash_files(source_paths),
         "agent_provider": config.get("provider"), "agent_model": config.get("model"),
         "agent_settings": settings, "prompt_hash": hashlib.sha256(effective_prompt.encode()).hexdigest(),
         "policy_hash": content_hash(policy),
         "judge_model": config.get("judge_model"),
-        "judge_settings": {"temperature": 0} if config.get("judge_model") else None,
+        "judge_settings": {"effort": JUDGE_EFFORT, "batch": True} if config.get("judge_model") else None,
         "fixture_hash": content_hash({"fixture": scenario.get("fixture"), "fixed_clock": fixed_clock,
                                       "builder_hash": hashlib.sha256((ROOT / "evals" / "fixtures.py").read_bytes()).hexdigest()}),
         "suite_hash": suite_hash, "evaluator_version": EVALUATOR_VERSION,
-        "judge": {"provider": config.get("provider"), "model": config.get("judge_model"),
-                  "settings": {"temperature": 0},
+        "judge": {"provider": "anthropic", "model": config.get("judge_model"),
+                  "settings": {"effort": JUDGE_EFFORT, "output": "json_schema"},
                   "prompt_hash": hashlib.sha256(JUDGE_PROMPT.encode()).hexdigest()},
         "dependencies": {name: _version(name) for name in ("livekit-agents", "fastapi", "sqlmodel", "httpx")},
         "fixed_clock": fixed_clock, "mode": mode,
@@ -222,7 +249,8 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                        mode: str = "live", suite_hash: str | None = None,
                        fixed_clock: str = FIXED_CLOCK, max_turns: int = 12,
                        max_tool_calls: int = 30, max_model_requests: int = 60,
-                       work_dir: Path | None = None) -> dict:
+                       work_dir: Path | None = None, budget: Budget | None = None) -> dict:
+    budget = budget or Budget(None)
     if mode not in ("live", "scripted"):
         raise ValueError("mode must be live or scripted")
     run_id = f"{scenario['id']}-t{trial:02d}-{mode}"
@@ -315,12 +343,16 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                     body = {"model": agent_config["model"], "messages": messages, "tools": schemas,
                             "tool_choice": "auto", "parallel_tool_calls": False,
                             "temperature": agent_config.get("temperature", 0.2)}
+                    if agent_config.get("host"):
+                        body["provider"] = {"order": [agent_config["host"]], "allow_fallbacks": False}
+                    budget.check(AGENT_RESERVE_USD, role="agent")
                     if agent_config.get("reasoning_effort"):
                         body["reasoning_effort"] = agent_config["reasoning_effort"]
                     response = await _post_with_retry(model_client, body, key)
                     payload = response.json()
                     if payload.get("usage"):
                         result.setdefault("usage", []).append(payload["usage"])
+                        budget.add(float(payload["usage"].get("cost") or 0.0), "agent")
                     choice = payload["choices"][0]
                     message = choice["message"]
                     calls = message.get("tool_calls") or []
@@ -356,6 +388,9 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                     messages.append({"role": "user", "content": answer})
                 else:
                     result["termination"] = "turn_budget"
+    except BudgetExceeded as exc:
+        result.update(status="budget_stopped", error=str(exc))
+        emit("error", text=str(exc))
     except PatientPolicyError as exc:
         result.update(status="patient_error", error=str(exc))
         emit("error", text=str(exc))
@@ -376,46 +411,67 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
     return result
 
 
-def load_scenarios(suite: str) -> list[dict]:
+def load_scenarios(suite: str, only: list[str] | None = None) -> list[dict]:
     files = sorted((ROOT / "evals" / "scenarios").glob("*.json"))
     scenarios = [json.loads(path.read_text()) for path in files]
-    return [s for s in scenarios if s.get("split") == suite or suite == "all"]
+    selected = [s for s in scenarios if s.get("split") == suite or suite == "all"]
+    return [s for s in selected if not only or s["id"] in only]
+
+
+def agent_config(args) -> dict:
+    config = dict(AGENT_DEFAULTS)
+    for key in ("model", "host", "base_url"):
+        value = getattr(args, f"agent_{key}", None)
+        if value:
+            config[key] = value
+    config["timeout"] = args.timeout
+    config["judge_model"] = args.judge_model
+    return config
+
+
+def _write(path: Path, value) -> None:
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False, default=str))
 
 
 async def run_suite(args) -> dict:
-    from dotenv import load_dotenv
-    load_dotenv(ROOT / "agent" / ".env")
-    from llm import resolve_config
-    cfg = resolve_config()
-    config = {**cfg.as_dict(), "api_key_env": "LLM_API_KEY" if os.getenv("LLM_API_KEY") else cfg.key_env,
-              "temperature": 0.2, "timeout": args.timeout,
-              "judge_model": args.judge_model or cfg.model}
-    scenarios = load_scenarios(args.suite)
+    load_secrets()
+    config = agent_config(args)
+    scenarios = load_scenarios(args.suite, args.scenario)
     if not scenarios:
         raise RuntimeError(f"No scenarios for suite {args.suite}")
-    suite_hash = content_hash(scenarios)
+    # The suite hash covers the whole split, not a --scenario subset, so subset
+    # smoke runs can never be compared against full-suite evidence.
+    suite_hash = content_hash(load_scenarios(args.suite))
+    budget = Budget(args.budget_usd)
     args.output.mkdir(parents=True, exist_ok=True)
-    runs, scorecards = [], []
+    runs = []
     for scenario in scenarios:
         for trial in range(1, args.repeat + 1):
             run = await run_scenario(scenario, config, trial=trial, mode=args.mode, suite_hash=suite_hash,
                                      max_turns=args.max_turns, max_tool_calls=args.max_tool_calls,
-                                     max_model_requests=args.max_model_requests, work_dir=args.output)
-            if args.mode == "live" and run["status"] == "completed":
-                from evals.judge import judge_run
-                judge_config = {"base_url": config["base_url"], "model": args.judge_model or config["model"],
-                                "api_key_env": config["api_key_env"], "temperature": 0,
-                                "timeout_seconds": args.timeout}
-                try:
-                    run["semantic_judgment"] = await judge_run(run, scenario, judge_config)
-                except Exception as exc:
-                    run["judge_error"] = f"{type(exc).__name__}: {exc}"
-            (args.output / f"{run['run_id']}.json").write_text(json.dumps(run, indent=2, ensure_ascii=False, default=str))
+                                     max_model_requests=args.max_model_requests, work_dir=args.output,
+                                     budget=budget)
             runs.append(run)
-            from evals.scoring import score_run
-            scorecards.append(score_run(run, scenario))
-            (args.output / "summary.json").write_text(json.dumps({"schema_version": 1, "runs": runs, "scorecards": scorecards}, indent=2, ensure_ascii=False, default=str))
-    return {"runs": runs, "scorecards": scorecards}
+            _write(args.output / f"{run['run_id']}.json", run)
+            print(f"{run['run_id']}: {run['status']} {run.get('termination', '')} spent=${budget.spent:.4f}", flush=True)
+    by_id = {s["id"]: s for s in scenarios}
+    if args.mode == "live" and args.judge_mode != "none":
+        from evals.judge import judge_runs
+        judgeable = [(run, by_id[run["scenario_id"]]) for run in runs if run["status"] == "completed"]
+        try:
+            judgments = judge_runs(judgeable, budget=budget, model=args.judge_model,
+                                   batch=args.judge_mode == "batch")
+        except BudgetExceeded as exc:
+            judgments = {run["run_id"]: {"errors": [f"judge_budget_stopped:{exc}"], "criteria": {}} for run, _ in judgeable}
+        for run in runs:
+            if run["run_id"] in judgments:
+                run["semantic_judgment"] = judgments[run["run_id"]]
+                _write(args.output / f"{run['run_id']}.json", run)
+    from evals.scoring import score_run
+    scorecards = [score_run(run, by_id[run["scenario_id"]]) for run in runs]
+    summary = {"schema_version": 1, "budget": budget.summary(), "runs": runs, "scorecards": scorecards}
+    _write(args.output / "summary.json", summary)
+    return summary
 
 
 def main():
@@ -428,13 +484,23 @@ def main():
     parser.add_argument("--max-tool-calls", type=int, default=30)
     parser.add_argument("--max-model-requests", type=int, default=60)
     parser.add_argument("--timeout", type=float, default=45)
-    parser.add_argument("--judge-model")
+    parser.add_argument("--scenario", action="append", help="Run only this scenario ID (repeatable); for smoke tests")
+    parser.add_argument("--agent-model")
+    parser.add_argument("--agent-host", help="OpenRouter host to pin, e.g. Cerebras")
+    parser.add_argument("--judge-model", default="claude-sonnet-5-5")
+    parser.add_argument("--judge-mode", choices=("batch", "sync", "none"), default="batch")
+    parser.add_argument("--budget-usd", type=float, default=1.5, help="Hard spend cap for this command")
     args = parser.parse_args()
     if args.repeat < 1 or min(args.max_turns, args.max_tool_calls, args.max_model_requests) < 1:
         parser.error("repeat and budgets must be positive")
     summary = asyncio.run(run_suite(args))
-    statuses = {status: sum(run["status"] == status for run in summary["runs"]) for status in ("completed", "blocked", "agent_error", "patient_error")}
-    print(json.dumps({"output": str(args.output / "summary.json"), "statuses": statuses}))
+    statuses = {status: sum(run["status"] == status for run in summary["runs"])
+                for status in ("completed", "blocked", "agent_error", "patient_error", "budget_stopped")}
+    passed = sum(card["passed"] for card in summary["scorecards"])
+    mean = sum(card["score"] for card in summary["scorecards"]) / max(len(summary["scorecards"]), 1)
+    print(json.dumps({"output": str(args.output / "summary.json"), "statuses": statuses,
+                      "passed": f"{passed}/{len(summary['scorecards'])}", "mean_score": round(mean, 2),
+                      "budget": summary["budget"]}))
 
 
 if __name__ == "__main__":

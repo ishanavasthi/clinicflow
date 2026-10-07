@@ -25,7 +25,7 @@ def validate_run(run: dict) -> None:
         raise ValueError("unsupported run schema")
     if run["mode"] not in ("live", "scripted"):
         raise ValueError("mode must distinguish live model runs from scripted checks")
-    if run["status"] not in ("completed", "agent_error", "patient_error", "blocked"):
+    if run["status"] not in ("completed", "agent_error", "patient_error", "blocked", "budget_stopped"):
         raise ValueError("invalid run status")
     ids = [event["id"] for event in run["events"]]
     if len(ids) != len(set(ids)):
