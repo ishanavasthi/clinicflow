@@ -13,7 +13,9 @@ POLICY_FIELDS = {
     "no_slots": {"department"},
     "booking_error": {"error"},
 }
-DEFAULT_POLICY = Path(__file__).parent / "policies" / "baseline.json"
+# The live agent ships the final evaluated policy. Evaluations pin their policy
+# explicitly with CLINICFLOW_POLICY_PATH (baseline.json reproduces the baseline).
+DEFAULT_POLICY = Path(__file__).parent / "policies" / "candidate-008.json"
 
 
 def load_policy(path: str | Path | None = None) -> dict[str, str]:

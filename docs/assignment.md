@@ -169,7 +169,7 @@ Known blind spots:
 
 ## Improvement loop
 
-1. Run the full development suite, three trials per scenario.
+1. Run the full development suite, five trials per scenario (three under simulator v1).
 2. `python -m evals.improve generate` collects every failed development trial
    with evidence, picks the most common failure signature, and sends up to four
    traces of it (from different scenarios where possible) to Claude Opus 5.5.
@@ -225,14 +225,15 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requi
 
 # Live runs need ~/.secrets/openrouter.env (OPENROUTER_API_KEY)
 # and ~/.secrets/anthropic.env (ANTHROPIC_API_KEY).
-.venv/bin/python -m evals.runner --suite development --repeat 3 --output runs/baseline --budget-usd 1.5
+CLINICFLOW_POLICY_PATH=agent/policies/baseline.json \
+    .venv/bin/python -m evals.runner --suite development --repeat 5 --output runs/baseline --budget-usd 1.5
 .venv/bin/python -m evals.improve generate --summary runs/baseline/summary.json \
     --policy agent/policies/baseline.json --output runs/proposal.json
 .venv/bin/python -m evals.improve apply --proposal runs/proposal.json \
     --policy agent/policies/baseline.json --summary runs/baseline/summary.json \
     --output agent/policies/candidate.json
 CLINICFLOW_POLICY_PATH=agent/policies/candidate.json \
-    .venv/bin/python -m evals.runner --suite development --repeat 3 --output runs/candidate --budget-usd 1.5
+    .venv/bin/python -m evals.runner --suite development --repeat 5 --output runs/candidate --budget-usd 1.5
 .venv/bin/python -m evals.compare --baseline runs/baseline/summary.json \
     --candidate runs/candidate/summary.json --output runs/comparison.json
 ```
