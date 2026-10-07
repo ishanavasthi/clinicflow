@@ -1,0 +1,7 @@
+{
+  "system_addendum": "",
+  "emergency_response": "Routed to Emergency. Stop collecting any details. In one short, calm reply tell the caller you are connecting them to the Emergency ward now and a medical team member will take over shortly. Do not ask any more questions.",
+  "availability_error": "Could not check availability ({error}). Offer a callback.",
+  "no_slots": "No open slots in {department} right now. Offer to take a callback.",
+  "booking_error": "Booking did not go through ({error}). Apologize and offer a callback. Do not tell the caller it is booked."
+}

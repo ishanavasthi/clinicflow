@@ -14,6 +14,7 @@ from livekit.agents import Agent, ModelSettings, RunContext, function_tool
 
 import cached_audio
 from prompts import GREETING_INSTRUCTION, GREETING_TEXT, SYSTEM_PROMPT
+from policy import load_policy
 from server_client import ServerClient
 from state import AgentStatePublisher, CallState
 from tools.appointments import book_appointment, check_availability
@@ -126,7 +127,11 @@ class Receptionist(Agent):
         server: ServerClient,
         publisher: AgentStatePublisher,
     ) -> None:
-        super().__init__(instructions=SYSTEM_PROMPT)
+        self.policy = load_policy()
+        instructions = SYSTEM_PROMPT
+        if self.policy["system_addendum"]:
+            instructions += "\n\n" + self.policy["system_addendum"]
+        super().__init__(instructions=instructions)
         self.state = state
         self.server = server
         self.publisher = publisher
@@ -260,10 +265,10 @@ class Receptionist(Agent):
             self.state, self.server, self.publisher, department
         )
         if not result["ok"]:
-            return f"Could not check availability ({result['error']}). Offer a callback."
+            return self.policy["availability_error"].format(error=result["error"])
         slots = result["data"]["slots"]
         if not slots:
-            return f"No open slots in {department} right now. Offer to take a callback."
+            return self.policy["no_slots"].format(department=department)
         lines = [
             f"{i + 1}. {s['doctor']} at {s['when']}" for i, s in enumerate(slots)
         ]
@@ -290,10 +295,7 @@ class Receptionist(Agent):
             self.state, self.server, self.publisher, option, reason
         )
         if not result["ok"]:
-            return (
-                f"Booking did not go through ({result['error']}). Apologize and offer "
-                "a callback. Do not tell the caller it is booked."
-            )
+            return self.policy["booking_error"].format(error=result["error"])
         appt = result["data"]
         return (
             f"Booked: {appt['doctor']}, {appt['department']}, {appt['when']}. "
@@ -327,12 +329,7 @@ class Receptionist(Agent):
         if not result["ok"]:
             return f"Could not route ({result['error']})."
         if result["data"]["emergency"]:
-            return (
-                "Routed to Emergency. Stop collecting any details. In one short, "
-                "calm reply tell the caller you are connecting them to the Emergency "
-                "ward now and a medical team member will take over shortly. Do not "
-                "ask any more questions."
-            )
+            return self.policy["emergency_response"]
         return (
             f"Noted {result['data']['department']} for the caller. Do not put them "
             "on hold or say a person is joining. Offer to book an appointment there "
