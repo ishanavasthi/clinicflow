@@ -1,0 +1,38 @@
+{
+  "base_policy_hash": "a51e6ff76a7992b533754e15ce020006b11771d5b47665f20e4da0400365e975",
+  "candidate_policy_hash": "8b355da487cb8067293394aeef805528b04a32c41761f0769448781b26e88ac3",
+  "changed_keys": [
+    "availability_error",
+    "system_addendum"
+  ],
+  "evidence_ids": [
+    "e0017",
+    "e0018",
+    "e0022",
+    "e0003",
+    "e0004",
+    "e0015",
+    "e0016",
+    "e0020",
+    "e0021",
+    "e0006",
+    "e0024",
+    "e0012",
+    "e0002"
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_hash": "e961242f03355ad0f5f901a970d9676106b81e862d20a405e313b3866da49a6d",
+  "proposal_id": "no-unprompted-date-question-v1",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S03-t01-live",
+    "S04-t02-live",
+    "S05-t02-live",
+    "S06-t05-live"
+  ],
+  "source_summary_hash": "e04849be284d164bfda25d6e391b64f62a562227dcaf4c3e9f26188f666d6cac"
+}

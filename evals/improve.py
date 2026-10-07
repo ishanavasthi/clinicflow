@@ -291,6 +291,11 @@ def generate(summary: dict, policy: dict, *, model: str = GENERATOR_MODEL, budge
         changes[change["field"]] = {"before": change["before"], "after": change["after"]}
     # Identity, base hash and schema version are written by this CLI, never
     # trusted from model output.
+    # Event IDs repeat across runs (every trace has an e0002), so a model citing
+    # the same ID for two runs is legitimate; keep one copy. Membership in the
+    # supplied traces is still validated below.
+    for key in ("source_run_ids", "evidence_ids"):
+        raw[key] = list(dict.fromkeys(raw[key]))
     proposal = {**raw, "changes": changes, "schema_version": 1, "base_policy_hash": content_hash(policy),
                 "generator": {"kind": "anthropic_api", "model": model, "effort": GENERATOR_EFFORT}}
     validate_proposal(proposal, policy, selected)
