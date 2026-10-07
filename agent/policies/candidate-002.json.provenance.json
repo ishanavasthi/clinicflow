@@ -1,0 +1,32 @@
+{
+  "base_policy_hash": "ac3b97a4b3e136e82d6a9ab6f94b688531f882aca64ee887b39d0973b9bde7e0",
+  "candidate_policy_hash": "a51e6ff76a7992b533754e15ce020006b11771d5b47665f20e4da0400365e975",
+  "changed_keys": [
+    "availability_error",
+    "emergency_response"
+  ],
+  "evidence_ids": [
+    "e0016",
+    "e0019",
+    "e0020",
+    "e0013",
+    "e0017",
+    "e0021",
+    "e0022"
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_hash": "656b1369f9bdfaaf27eb1b528f5fb85a8edef98cf57b31436da9c9f0e8eee25b",
+  "proposal_id": "tpl-honest-workflows-01",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S13-t02-live",
+    "S13-t03-live",
+    "S10-t01-live",
+    "S10-t02-live"
+  ],
+  "source_summary_hash": "d7a0774e58fe6e0561dbf51ced9028767d14aeb7480b96d73b0e0b7f449b9402"
+}
