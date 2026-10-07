@@ -39,9 +39,16 @@ class CallState:
     status: str = "active"
     routed_department: Optional[str] = None
     booking: Optional[dict] = None
+    offered_department: Optional[str] = None
+    offered_after_user_text: str = ""
+    booking_request_id: Optional[str] = None
+    booking_slot_id: Optional[int] = None
+    booking_reason: Optional[str] = None
+    selection_evidence: Optional[str] = None
+    emergency: bool = False
 
     def missing_intake(self) -> list[str]:
-        return [f for f in INTAKE_FIELDS if f not in self.intake]
+        return [f for f in INTAKE_FIELDS if not str(self.intake.get(f, "")).strip()]
 
 
 class AgentStatePublisher:

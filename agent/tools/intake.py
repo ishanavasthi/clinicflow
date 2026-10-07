@@ -52,7 +52,13 @@ async def apply_intake(
         return {"ok": False, "error": f"'{field}' is not a valid intake field"}
 
     value = _normalize(field, value)
-    state.intake[field] = value
+    if not value:
+        return {"ok": False, "error": "a supplied nonblank value is required"}
+    if field == "phone" and not re.fullmatch(r"[6-9][0-9]{9}", value):
+        return {"ok": False, "error": "ask for a valid 10-digit Indian mobile number"}
+    if field == "age" and (not value.isdigit() or not 0 <= int(value) <= 120):
+        return {"ok": False, "error": "ask for age in whole years between 0 and 120"}
+    previous = state.intake.get(field)
 
     try:
         if state.patient_id is None:
@@ -62,6 +68,12 @@ async def apply_intake(
             await server.update_patient(state.patient_id, **{field: value})
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"could not save {field}: {exc}"}
+
+    state.intake[field] = value
+    if previous != value and state.status != "booking_uncertain":
+        state.offered_slots = []
+        state.offered_department = None
+        state.selection_evidence = None
 
     await publisher.publish(
         "intake_update",

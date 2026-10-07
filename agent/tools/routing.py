@@ -32,6 +32,16 @@ async def route_to_department(
             "error": f"unknown department '{department}'; valid: {', '.join(DEPARTMENTS.values())}",
         }
 
+    if canonical == "Emergency":
+        state.emergency = True
+        state.offered_slots = []
+        state.selection_evidence = None
+    elif state.emergency:
+        return {"ok": False, "error": "Emergency escalation is active; routine routing is disabled"}
+    elif state.offered_department != canonical:
+        state.offered_slots = []
+        state.selection_evidence = None
+
     # Backstop: the routing reason is the caller's symptom. If the model routed
     # without recording it, capture it in intake now so the panel is not left blank.
     if reason and not state.intake.get("symptoms"):

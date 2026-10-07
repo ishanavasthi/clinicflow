@@ -120,6 +120,33 @@ def _spoken_digits(text: str) -> str:
     return "".join(out)
 
 
+def _explicit_choice(text: str, slots: list[dict]) -> int | None:
+    """Conservative consent check: ambiguity requires another patient turn.
+
+    This recognizes explicit option ordinals or an exact displayed clock time.
+    It is deliberately narrower than general language understanding. Semantic
+    intent remains a separate evaluation criterion; a tool argument is not proof.
+    """
+    text = text.lower().strip()
+    if re.search(r"\b(no|not|don.?t|wait|maybe|either|or|hold|cancel)\b", text):
+        return None
+    choices = set()
+    for n, word in enumerate(("first", "second", "third"), 1):
+        if re.search(rf"\b{word}\b", text):
+            choices.add(n)
+    for match in re.finditer(r"\b(?:option|number|slot|book|take|choose|pick)\s+([123])\b", text):
+        choices.add(int(match.group(1)))
+    if text.rstrip('.!') in ('1', '2', '3'):
+        choices.add(int(text.rstrip('.!')))
+    for n, slot in enumerate(slots, 1):
+        from datetime import datetime
+        start = datetime.fromisoformat(slot["start"])
+        clock = f"{start.hour % 12 or 12}:{start.minute:02d}"
+        if re.search(rf"(?<!\d){re.escape(clock)}(?!\d)", text):
+            choices.add(n)
+    return next(iter(choices)) if len(choices) == 1 else None
+
+
 class Receptionist(Agent):
     def __init__(
         self,
@@ -222,6 +249,8 @@ class Receptionist(Agent):
             field: one of name, age, phone, symptoms.
             value: the value the caller gave.
         """
+        if self.state.emergency:
+            return "Emergency escalation is active. Stop routine intake and follow the escalation instructions."
         # Guard against a fabricated phone: only record digits the caller actually
         # spoke recently. Catches the model inventing a placeholder number.
         if _canonical_field(field) == "phone":
@@ -244,12 +273,18 @@ class Receptionist(Agent):
         return f"Recorded {field}. All intake details are collected."
 
     @function_tool()
-    async def check_availability(self, context: RunContext, department: str) -> str:
+    async def check_availability(
+        self, context: RunContext, department: str, date: str | None = None,
+        not_before: str | None = None, not_after: str | None = None,
+    ) -> str:
         """Look up open slots in a department, before booking.
 
         Args:
             department: Emergency, General Medicine, Pediatrics, Orthopedics, or
                 Cardiology.
+            date: requested clinic-local date in YYYY-MM-DD, if supplied.
+            not_before: earliest acceptable clinic-local time HH:MM, if supplied.
+            not_after: latest acceptable clinic-local time HH:MM, if supplied.
         """
         # Do not offer appointment times until intake is complete. The model tends
         # to rush ahead and check availability before the caller has given every
@@ -262,8 +297,9 @@ class Receptionist(Agent):
                 "Check availability only once you have them all."
             )
         result = await check_availability(
-            self.state, self.server, self.publisher, department
+            self.state, self.server, self.publisher, department, date, not_before, not_after
         )
+        self.state.offered_after_user_text = self._recent_user_text(turns=1)
         if not result["ok"]:
             return self.policy["availability_error"].format(error=result["error"])
         slots = result["data"]["slots"]
@@ -275,8 +311,8 @@ class Receptionist(Agent):
         return (
             "Available appointments:\n"
             + "\n".join(lines)
-            + "\nOffer these to the caller conversationally, saying only the times "
-            "(never the numbers or any id). When they choose one, call "
+            + "\nOffer these numbered options with doctor, date, and time in Asia/Kolkata. "
+            "Ask the patient to choose one explicitly; never expose database IDs. When they choose one, call "
             "book_appointment with its option number."
         )
 
@@ -291,10 +327,20 @@ class Receptionist(Agent):
                 you offered them.
             reason: the visit reason or symptom, if known.
         """
+        if self.state.booking is None and self.state.status != "booking_uncertain":
+            latest = self._recent_user_text(turns=1)
+            choice = _explicit_choice(latest, self.state.offered_slots)
+            if latest == self.state.offered_after_user_text or choice != option:
+                return "No unambiguous patient choice for this option. Ask which numbered appointment they want and wait. Do not book yet."
+            self.state.selection_evidence = latest
         result = await book_appointment(
             self.state, self.server, self.publisher, option, reason
         )
         if not result["ok"]:
+            if result.get("code") == "uncertain":
+                return result["error"]
+            if result.get("code") == "conflict":
+                return "That booking was not made. Refresh availability, offer current options, and wait for a new patient choice."
             return self.policy["booking_error"].format(error=result["error"])
         appt = result["data"]
         return (
