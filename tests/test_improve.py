@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from evals.contracts import content_hash
-from evals.improve import apply, failed_evidence, generate, validate_proposal
+from evals.improve import apply, failed_evidence, generate, select_failures, validate_proposal
 from evals.submission_check import check
 from test_compare import summary as comparison_summary
 
@@ -145,6 +145,17 @@ class ImproveTests(unittest.TestCase):
         report = check(baseline=baseline, candidate=candidate, proposal=sourced, base_policy=POLICY,
                        candidate_policy=candidate_policy, provenance=provenance, expected_scenarios={"S01", "S02"})
         self.assertFalse(report["ready"])
+
+    def test_selection_targets_most_frequent_critical_code_before_clarity(self):
+        def finding(run_id, scenario, critical, criteria=("conversation_clarity",)):
+            return {"run_id": run_id, "scenario_id": scenario, "score": 80, "critical_failures": critical,
+                    "criteria": [{"id": c} for c in criteria], "evidence_ids": ["e1"], "events": [], "final_state": {}}
+        findings = [finding(f"c{i}", f"S0{i}", []) for i in range(5)]
+        findings += [finding("a", "S08", ["unsupported_callback"]),
+                     finding("b", "S10", ["fabricated_workflow_claim", "unsupported_callback"]),
+                     finding("c", "S13", ["fictitious_handoff"])]
+        chosen = select_failures(findings)
+        self.assertEqual({item["run_id"] for item in chosen}, {"a", "b"})
 
 
 if __name__ == "__main__":

@@ -224,14 +224,22 @@ PROPOSAL_SCHEMA = {
 
 
 def select_failures(findings: list[dict], limit: int = MAX_SOURCE_RUNS) -> list[dict]:
-    """Pick the most common failure signature and up to `limit` traces of it,
-    preferring different scenarios so the fix is not tailored to one script."""
-    def signature(item: dict) -> str:
-        return ",".join(sorted(item["critical_failures"])) or "below_pass:" + ",".join(
-            sorted(c["id"] for c in item["criteria"]))
-    counts = Counter(signature(item) for item in findings)
-    target = max(counts, key=lambda key: (counts[key], key))
-    matching = sorted((item for item in findings if signature(item) == target), key=lambda i: (i["score"], i["run_id"]))
+    """Severity first: target the critical failure code seen in the most
+    trials; only when no trial has a critical failure, target the most common
+    set of below-threshold criteria. Up to `limit` traces of the target are
+    returned, preferring different scenarios so the fix is not tailored to one
+    script."""
+    critical = Counter(code for item in findings for code in set(item["critical_failures"]))
+    if critical:
+        target = max(critical, key=lambda code: (critical[code], code))
+        matching = [item for item in findings if target in item["critical_failures"]]
+    else:
+        def signature(item: dict) -> str:
+            return ",".join(sorted(c["id"] for c in item["criteria"]))
+        counts = Counter(signature(item) for item in findings)
+        target = max(counts, key=lambda key: (counts[key], key))
+        matching = [item for item in findings if signature(item) == target]
+    matching.sort(key=lambda i: (i["score"], i["run_id"]))
     chosen, scenarios = [], set()
     for item in matching:
         if item["scenario_id"] not in scenarios:
