@@ -26,6 +26,7 @@ import httpx
 from evals.contracts import SCHEMA_VERSION, content_hash, validate_run
 from evals.fixtures import FIXED_CLOCK, build_fixture, read_final_state
 from evals.patients import PatientPolicyError, ScriptedPatient
+from evals.retry import ATTEMPTS, RETRYABLE_STATUS, retry_delay
 
 ROOT = Path(__file__).resolve().parents[1]
 # Both applications use loose top-level modules. These names do not overlap in
@@ -128,6 +129,16 @@ class FaultClient(ServerClient):
         if effect == "commit_then_raise":
             raise httpx.ReadError("injected lost booking response after commit")
         return result
+
+
+async def _post_with_retry(client: httpx.AsyncClient, body: dict, key: str, attempts: int = ATTEMPTS) -> httpx.Response:
+    for attempt in range(attempts):
+        response = await client.post("/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body)
+        if response.status_code not in RETRYABLE_STATUS or attempt == attempts - 1:
+            response.raise_for_status()
+            return response
+        await asyncio.sleep(retry_delay(response.headers, attempt))
+    raise AssertionError("unreachable")
 
 
 def _hash_files(paths: list[Path]) -> str:
@@ -306,8 +317,7 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                             "temperature": agent_config.get("temperature", 0.2)}
                     if agent_config.get("reasoning_effort"):
                         body["reasoning_effort"] = agent_config["reasoning_effort"]
-                    response = await model_client.post("/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body)
-                    response.raise_for_status()
+                    response = await _post_with_retry(model_client, body, key)
                     payload = response.json()
                     if payload.get("usage"):
                         result.setdefault("usage", []).append(payload["usage"])
@@ -337,6 +347,9 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                         break
                     answer = patient.reply(spoken, state.offered_slots)
                     if answer is None:
+                        result["termination"] = "patient_unmatched" if patient.unmatched else "patient_ended"
+                        if patient.unmatched:
+                            emit("patient_policy", text=f"no patient rule matched; patient ended the call: {patient.unmatched!r}")
                         break
                     emit("user", text=answer)
                     agent.eval_user_history.append(answer)

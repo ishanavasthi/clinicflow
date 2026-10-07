@@ -9,9 +9,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .retry import ATTEMPTS, RETRYABLE_STATUS, retry_delay
 from .scoring import EVALUATOR_VERSION, SEMANTIC
 
 SYSTEM = """You are a strict auditor of a synthetic clinic scheduling conversation.
@@ -71,7 +73,14 @@ async def judge_run(run: dict, scenario: dict, config: dict) -> dict:
     def request(payload: dict) -> bytes:
         req = Request(base_url.rstrip("/") + "/chat/completions", data=json.dumps(payload).encode(),
                       headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"}, method="POST")
-        return urlopen(req, timeout=config.get("timeout_seconds", 45)).read()
+        for attempt in range(ATTEMPTS):
+            try:
+                return urlopen(req, timeout=config.get("timeout_seconds", 45)).read()
+            except HTTPError as exc:
+                if exc.code not in RETRYABLE_STATUS or attempt == ATTEMPTS - 1:
+                    raise
+                time.sleep(retry_delay(exc.headers, attempt))
+        raise AssertionError("unreachable")
     try:
         try:
             response = await asyncio.to_thread(request, body)

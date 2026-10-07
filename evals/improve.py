@@ -5,10 +5,13 @@ import argparse
 import json
 import os
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from string import Formatter
 
+from .retry import ATTEMPTS, RETRYABLE_STATUS, retry_delay
 from .contracts import content_hash, validate_run, validate_scorecard
 
 ALLOWED_KEYS = frozenset({"system_addendum", "emergency_response", "availability_error", "no_slots", "booking_error"})
@@ -169,8 +172,15 @@ def _chat_completion(url: str, model: str, api_key: str, messages: list[dict]) -
     request = urllib.request.Request(url.rstrip("/") + "/chat/completions",
         data=json.dumps({"model": model, "temperature": 0, "response_format": {"type": "json_object"}, "messages": messages}).encode(),
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(request, timeout=120) as response:
-        payload = json.load(response)
+    for attempt in range(ATTEMPTS):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                payload = json.load(response)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code not in RETRYABLE_STATUS or attempt == ATTEMPTS - 1:
+                raise
+            time.sleep(retry_delay(exc.headers, attempt))
     return json.loads(payload["choices"][0]["message"]["content"])
 
 
