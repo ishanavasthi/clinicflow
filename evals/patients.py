@@ -34,9 +34,14 @@ FACT_QUESTIONS = {
     "name": re.compile(r"\bname\b", re.IGNORECASE),
     "age": re.compile(r"\bage\b|how old", re.IGNORECASE),
     "phone": re.compile(r"phone|mobile|contact number|\bnumber\b", re.IGNORECASE),
-    "symptoms": re.compile(r"symptom|reason|what brings|concern|problem|complaint|describe|experienc|what.{0,20}(?:wrong|issue)", re.IGNORECASE),
+    "symptoms": re.compile(r"symptom|reason|what brings|concern|problem|complaint|describe|experienc|"
+                           r"tell me (?:a bit |a little |more )?about|what.{0,20}(?:wrong|issue)", re.IGNORECASE),
     "department": re.compile(r"department|specialt", re.IGNORECASE),
+    "timing": re.compile(r"\bdate\b|which day|what day|when would you|when do you|when are you|"
+                         r"preferred time|what time|time of day|morning or", re.IGNORECASE),
 }
+# A patient with no stated timing preference is flexible and asks for real times.
+DEFAULT_TIMING = "Any day works. Please tell me the available times."
 
 CONFIRMATION = re.compile(r"confirm|correct|right\?|is that", re.IGNORECASE)
 # A patient repeats their slot choice if the agent re-offers, up to this many times.
@@ -48,6 +53,7 @@ FACT_ANSWERS = {
     "phone": "My phone number is {}.",
     "symptoms": "It is for {}.",
     "department": "I need {}.",
+    "timing": "{}",
 }
 
 
@@ -59,6 +65,7 @@ class ScriptedPatient:
     def __init__(self, scenario: dict):
         self.policy = scenario.get("policy") or {}
         self.facts = {k: str(v) for k, v in (scenario.get("patient") or {}).items() if str(v or "").strip()}
+        self.facts.setdefault("timing", DEFAULT_TIMING)
         self.used: set[str] = set()
         self.slot_choices = 0
         self.unmatched: str | None = None
@@ -69,7 +76,7 @@ class ScriptedPatient:
         asked = [field for field, pattern in FACT_QUESTIONS.items() if field in self.facts and pattern.search(text)]
         if not asked:
             return None
-        if CONFIRMATION.search(text) and all(self._read_back(text, field) for field in asked):
+        if CONFIRMATION.search(text) and "timing" not in asked and all(self._read_back(text, field) for field in asked):
             return "Yes, that's right."
         return " ".join(FACT_ANSWERS[field].format(self.facts[field]) for field in asked)
 

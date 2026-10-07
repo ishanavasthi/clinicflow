@@ -19,6 +19,12 @@ class PatientTests(unittest.TestCase):
         self.assertEqual(p.reply("May I have your phone number, please?", []), "My phone number is 9876501002.")
         self.assertEqual(p.reply("Could you describe the knee pain you're experiencing?", []), "It is for knee pain.")
 
+    def test_answers_date_questions_from_timing_preference(self):
+        self.assertEqual(patient("S01").reply("Could you let me know a date you'd like to come in?", []),
+                         "Any day works. Please tell me the available times.")
+        self.assertIn("yesterday", patient("S15").reply("What date would you like?", []))
+        self.assertEqual(patient("S02").reply("Could you tell me a bit about your knee pain?", []), "It is for knee pain.")
+
     def test_confirms_read_back_only_when_asked_to_confirm(self):
         p = patient("S01")
         self.assertEqual(p.reply("Just to confirm, your phone is 9876501001, correct?", []), "Yes, that's right.")

@@ -8,7 +8,8 @@
     "phone": "9876502004",
     "department": "Orthopedics",
     "symptoms": "shoulder pain",
-    "age": "47"
+    "age": "47",
+    "timing": "Only tomorrow after 6 PM works for me."
   },
   "policy": {
     "max_turns": 7,

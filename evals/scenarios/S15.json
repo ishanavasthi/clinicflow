@@ -8,7 +8,8 @@
     "phone": "9876501015",
     "department": "General Medicine",
     "symptoms": "back pain",
-    "age": "55"
+    "age": "55",
+    "timing": "Only yesterday at 9:30 AM works for me. No other time."
   },
   "policy": {
     "max_turns": 7,
