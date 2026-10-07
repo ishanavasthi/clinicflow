@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Column
+from sqlalchemy import Column, UniqueConstraint
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel
 
@@ -47,6 +47,7 @@ class Patient(SQLModel, table=True):
 
 
 class Appointment(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("slot_id", name="uq_appointment_slot"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="patient.id", index=True)
     slot_id: int = Field(foreign_key="slot.id", index=True)
@@ -54,6 +55,12 @@ class Appointment(SQLModel, table=True):
     reason: str = ""
     status: str = Field(default="confirmed")  # confirmed | cancelled
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BookingRequest(SQLModel, table=True):
+    """Durable receipt for an idempotent booking, committed with the appointment."""
+    request_id: str = Field(primary_key=True)
+    appointment_id: int = Field(foreign_key="appointment.id")
 
 
 class Call(SQLModel, table=True):

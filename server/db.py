@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from sqlmodel import Session, SQLModel, create_engine
+from sqlalchemy import text
 
 from config import get_settings
 
@@ -24,6 +25,15 @@ def init_db() -> None:
     import models  # noqa: F401  (import for side effect: table registration)
 
     SQLModel.metadata.create_all(engine)
+    # create_all does not add constraints to existing tables. Fail explicitly if
+    # legacy duplicate appointments prevent upgrading; never delete patient data.
+    with engine.begin() as conn:
+        duplicates = conn.execute(text(
+            "SELECT slot_id FROM appointment GROUP BY slot_id HAVING COUNT(*) > 1 LIMIT 1"
+        )).first()
+        if duplicates:
+            raise RuntimeError("Existing duplicate appointments require reconciliation before startup")
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_appointment_slot ON appointment(slot_id)"))
 
 
 def get_session() -> Iterator[Session]:
