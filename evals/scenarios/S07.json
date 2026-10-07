@@ -1,0 +1,42 @@
+{
+  "id": "S07",
+  "split": "development",
+  "title": "Department switch invalidates options",
+  "initial_message": "Hi, I need a General Medicine appointment for persistent cough. I am Arun Iyer, age 34, phone 9876501007.",
+  "patient": {
+    "name": "Arun Iyer",
+    "phone": "9876501007",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "34"
+  },
+  "policy": {
+    "max_turns": 9,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "available|appointment|slot|time",
+        "reply": "Actually I need Cardiology. Please do not book the General Medicine option.",
+        "once": true
+      },
+      {
+        "id": "r2",
+        "match": "cardiology|available|appointment|slot|time",
+        "reply": "If Cardiology has no opening I will decide later. Do not book.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": {
+    "operation": "availability",
+    "trigger": 2,
+    "effect": "empty",
+    "times": 1
+  },
+  "expected": {
+    "outcome": "no_booking",
+    "appointment_count": 0,
+    "forbidden_department": "General Medicine"
+  }
+}

@@ -2,7 +2,7 @@
 # For the full stack, run each in its own terminal: `make server`, `make agent`,
 # `make web`. Use `make reset` before a demo for a clean database.
 
-.PHONY: help setup seed reset demo server agent web console verify latency
+.PHONY: help setup seed reset demo server agent web console verify latency test eval eval-report improve apply compare
 
 help:
 	@echo "ClinicFlow commands:"
@@ -15,6 +15,14 @@ help:
 	@echo "  make console  Talk to the agent via the local mic (no browser)"
 	@echo "  make verify   Run the scripted booking + provider smoke tests"
 	@echo "  make latency  Report voice latency (p50/p95) across recorded calls"
+	@echo ""
+	@echo "Evaluation (see README 'Assignment results'):"
+	@echo "  make test         Offline tests: scheduling, backend, scorer, loop tooling (no keys)"
+	@echo "  make eval         Live development suite: OUT=runs/x [POLICY=agent/policies/...] [REPEAT=5]"
+	@echo "  make eval-report  Rebuild the README results tables from docs/evidence"
+	@echo "  make improve      Generate a proposal: SUMMARY=... POLICY=... PROPOSAL=..."
+	@echo "  make apply        Apply it: PROPOSAL=... POLICY=... SUMMARY=... CANDIDATE=..."
+	@echo "  make compare      Gate a candidate: BASELINE=... CANDIDATE_SUMMARY=... REPORT=..."
 
 setup:
 	cd server && uv venv --python 3.12 .venv && uv pip install -e .
@@ -62,3 +70,36 @@ verify:
 # Add --per-call for a line per call, --json for the raw numbers.
 latency:
 	cd agent && .venv/bin/python scripts/latency_report.py --per-call
+
+# ---- Evaluation harness ----------------------------------------------------
+PY ?= .venv/bin/python
+REPEAT ?= 5
+SUITE ?= development
+BUDGET ?= 1.5
+EVIDENCE := docs/evidence
+
+test:
+	$(PY) -m pytest -q tests
+
+eval:
+	@test -n "$(OUT)" || (echo "set OUT=runs/<name>"; exit 1)
+	CLINICFLOW_POLICY_PATH=$(or $(POLICY),agent/policies/baseline.json) \
+		$(PY) -m evals.runner --suite $(SUITE) --repeat $(REPEAT) --output $(OUT) --budget-usd $(BUDGET)
+
+eval-report:
+	$(PY) -m evals.report Baseline=$(EVIDENCE)/sim-v2/baseline-dev.summary.json \
+		"Gen 002"=$(EVIDENCE)/sim-v2/candidate-002-dev.summary.json \
+		"Eng 003"=$(EVIDENCE)/sim-v2/candidate-003-dev.summary.json \
+		"Eng 005"=$(EVIDENCE)/sim-v2/candidate-005-dev.summary.json \
+		"Final 008"=$(EVIDENCE)/iteration-008/candidate-008-dev.summary.json
+	$(PY) -m evals.report Baseline=$(EVIDENCE)/final/baseline-holdout.summary.json \
+		"Final 008"=$(EVIDENCE)/final/candidate-008-holdout.summary.json
+
+improve:
+	$(PY) -m evals.improve generate --summary $(SUMMARY) --policy $(POLICY) --output $(PROPOSAL)
+
+apply:
+	$(PY) -m evals.improve apply --proposal $(PROPOSAL) --policy $(POLICY) --summary $(SUMMARY) --output $(CANDIDATE)
+
+compare:
+	$(PY) -m evals.compare --baseline $(BASELINE) --candidate $(CANDIDATE_SUMMARY) --output $(REPORT)

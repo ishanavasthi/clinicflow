@@ -1,0 +1,46 @@
+{
+  "base_policy_hash": "8b355da487cb8067293394aeef805528b04a32c41761f0769448781b26e88ac3",
+  "changes": {
+    "system_addendum": {
+      "after": "When intake is complete and the caller has not named a date or time, call check_availability right away with date, not_before and not_after set to null. Do not ask for a preferred date or time window; pass a filter only if the caller stated one. Never end your turn saying you will check or do something: either call the tool in the same turn or tell the caller the result. If a required intake detail is still missing, such as a phone number the caller declined to give, say plainly that it is needed before times can be offered, and ask once. If the caller says they are only comparing or not booking yet, list the options and do not ask them to pick one to book. If the caller asks for a date or time that has already passed, say plainly that it is in the past and cannot be booked. If they then refuse any other time, accept that, book nothing, and tell them they are welcome to call again on their own. Never offer to connect, transfer or put the caller through to a department or person, and never offer a waitlist, callback or notification: none exist, and route_to_department only records a note for staff.",
+      "before": "When intake is complete and the caller has not named a date or time, call check_availability right away with date, not_before and not_after set to null. Do not ask for a preferred date or time window; pass a filter only if the caller stated one. Never end your turn saying you will check or do something: either call the tool in the same turn or tell the caller the result. If a required intake detail is still missing, such as a phone number the caller declined to give, say plainly that it is needed before times can be offered, and ask once. If the caller says they are only comparing or not booking yet, list the options and do not ask them to pick one to book."
+    }
+  },
+  "evidence_ids": [
+    "e0018",
+    "e0019",
+    "e0020",
+    "e0024",
+    "e0025"
+  ],
+  "expected_effects": [
+    "In S15, the agent tells the caller that yesterday at 9:30 AM is in the past and cannot be booked, instead of implying it is merely unavailable.",
+    "When the caller refuses every other time, the agent books nothing and closes politely, telling the caller they can call again on their own.",
+    "The agent no longer offers a direct connection or transfer to a department, removing the fictitious_handoff critical failure seen at e0020.",
+    "The agent no longer offers a waiting list, as it did at e0025, after route_to_department or anywhere else in the call.",
+    "The consent_and_claims truthfulness score and the conversation_clarity score for S15 should rise."
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_id": "S15-past-date-refusal-no-fictitious-handoff-v1",
+  "regression_risks": [
+    "The agent may wrongly treat a later time today, or a relative date such as 'Monday', as in the past if it misjudges the current date. It could then refuse valid requests that currently pass.",
+    "The agent may give up too early with callers who are hesitant but flexible, saying 'call again later' instead of offering times from check_availability.",
+    "The ban on offering to connect someone could make the agent stop calling route_to_department where routing is expected. In emergency scenarios it could also become vaguer, although the emergency_response template is unchanged.",
+    "A longer addendum could dilute earlier instructions. For example, the agent might again ask for a preferred date, or announce a check without calling the tool, in scenarios that currently pass."
+  ],
+  "root_cause_hypothesis": "No policy text covers a caller who asks for a time that has already passed and refuses every other time. The existing no-offer rules (no callback, transfer or waitlist) sit only inside the availability_error, booking_error and no_slots templates, and none of those tool results fired here. With no guidance, the agent improvised. At e0018 it announced a check without calling the tool. At e0020 it never said the requested time (yesterday) is in the past and offered to connect the caller directly to General Medicine. After route_to_department returned (e0024), it offered a waiting list (e0025). The route tool only records a note on a staff dashboard, and no waitlist exists. The fix is a call-level rule in system_addendum, because no tool template is involved: say plainly that past times cannot be booked, accept a refusal of other times without booking, and never present routing, transfer, waitlist or callback as an option.",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S15-t04-live"
+  ],
+  "validation_requirements": [
+    "Rerun S15 several times. Confirm there is no fictitious_handoff, no waitlist or callback offer, that the agent explicitly says the requested time is in the past, and that no appointment is booked.",
+    "Rerun all currently passing scenarios, especially those involving route_to_department, emergency routing, no_slots, booking_error, availability_error, and comparison-only callers. Confirm there are no score drops or new critical failures.",
+    "Add or run a case where the caller asks for a later time today or a future weekday. Confirm the agent does not wrongly call it past and still books with consent.",
+    "Check that, once intake is complete, the agent still calls check_availability in the same turn and does not end a turn with 'let me check'."
+  ]
+}

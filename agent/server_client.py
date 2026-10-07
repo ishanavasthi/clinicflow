@@ -63,15 +63,21 @@ class ServerClient:
         return await self._json("PATCH", f"/patients/{patient_id}", fields)
 
     async def availability(
-        self, department: str, limit: int = 3
+        self, department: str, limit: int = 3, date: str | None = None,
+        not_before: str | None = None, not_after: str | None = None,
     ) -> list[dict]:
-        return await self._json(
-            "GET", f"/appointments/availability?department={department}&limit={limit}"
-        )
+        from urllib.parse import urlencode
+        params = {"department": department, "limit": limit}
+        params.update({k: v for k, v in {"date": date, "not_before": not_before, "not_after": not_after}.items() if v})
+        return await self._json("GET", "/appointments/availability?" + urlencode(params))
 
-    async def book(self, patient_id: int, slot_id: int, reason: str) -> dict:
+    async def book(self, patient_id: int, slot_id: int, reason: str, request_id: str | None = None) -> dict:
         return await self._json(
             "POST",
             "/appointments",
-            {"patient_id": patient_id, "slot_id": slot_id, "reason": reason},
+            {"patient_id": patient_id, "slot_id": slot_id, "reason": reason, "request_id": request_id},
         )
+
+    async def booking_receipt(self, request_id: str, patient_id: int) -> dict:
+        from urllib.parse import quote
+        return await self._json("GET", f"/appointments/requests/{quote(request_id, safe='')}?patient_id={patient_id}")

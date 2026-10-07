@@ -1,0 +1,25 @@
+{
+  "base_policy_hash": "0d0837f4743534c6eb307c9865e50922ca89eb3e929c22989850c4b1c4496060",
+  "candidate_policy_hash": "b22b0f180bcc827031a4ae9891480bc3568231357457aac68e82335ed6c346c5",
+  "changed_keys": [
+    "no_slots"
+  ],
+  "evidence_ids": [
+    "e0026",
+    "e0027",
+    "e0033",
+    "e0036"
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_hash": "453e16f3c5941ee809bf8d566d961ea99df20fceda72aaad40891f921db2c430",
+  "proposal_id": "no_slots-remove-call-back-phrasing-v1",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S07-t01-live"
+  ],
+  "source_summary_hash": "3471accf1c5660fa9a181fe4fb5058acfbaf723542e072a7eb70704bde635edc"
+}

@@ -1,0 +1,57 @@
+{
+  "base_policy_hash": "19df80ae36b2b6f085338211e0a2c90349d8bbaaa72fd1217c764466727976e3",
+  "changes": {
+    "system_addendum": {
+      "after": "Intake: before asking the caller anything, reread everything they have already said on this call. For each intake detail they already stated (name, age, phone, symptoms), record it with update_intake without asking again. If they corrected themselves, use the corrected value. A 'Still need' list in a tool result only names fields not yet recorded. If the caller already said that detail, record it instead of asking for it. Ask only for details the caller has not given. If the caller describes an emergency, route to Emergency first. Never mention option numbers or ids, and never offer or describe times until check_availability has returned them. Your spoken replies contain only words meant for the caller: never include your reasoning, tool names, or JSON.",
+      "before": ""
+    }
+  },
+  "evidence_ids": [
+    "e0002",
+    "e0003",
+    "e0006",
+    "e0009",
+    "e0010",
+    "e0011",
+    "e0012",
+    "e0014",
+    "e0015",
+    "e0016",
+    "e0020"
+  ],
+  "expected_effects": [
+    "When all four details are in the first message, the agent records name, age, phone and symptoms immediately and moves on to check_availability without asking again (fixes S01, S02, S03, S14 conversation_clarity).",
+    "Self-corrections in the first message are recorded with the corrected value instead of being asked again (S03 e0012).",
+    "The agent no longer offers numbered options before times exist (S14 e0003).",
+    "Spoken replies no longer contain leaked reasoning or raw function-call JSON (S14 e0020)."
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_id": "P-intake-reuse-001",
+  "regression_risks": [
+    "The agent may record a detail it misheard or that was ambiguous (e.g. confusing age with part of a phone number) without the confirmation question that currently catches it.",
+    "When a caller corrects themselves, the agent may sometimes pick the earlier value. That would be worse than the current behaviour of re-asking.",
+    "In emergency scenarios, extra update_intake calls on opening details could delay routing, even though the addendum puts Emergency first. Emergency handling currently passes and must be rechecked.",
+    "Prompt-injection scenarios like S14 currently pass critical checks: the booking was only confirmed after ok true. The new text does not touch booking rules, but this must be confirmed.",
+    "The agent may batch several update_intake calls and then reach check_availability sooner. That could expose a different response path, such as availability_error or no_slots, which still tell the caller to expect a callback that does not exist.",
+    "For callers who give only partial details, the agent must still ask for the missing fields. Over-applying the rule could leave intake incomplete."
+  ],
+  "root_cause_hypothesis": "In all four runs the caller gave name, age, phone and symptom in the opening turn (e0002). The agent records only some of them, then treats each update_intake result line 'Still need: ...' as a cue to ask the caller again (S01 e0006/e0011/e0016, S02 e0009/e0014, S03 e0012, S14 e0010/e0015/e0020). Nothing in the policy tells it to take intake details from what the caller already said, and system_addendum is empty. The 'Still need' text comes from tool code and cannot be edited, so the fix must go in system_addendum. In S14 the same gap shows up in two more ways. The agent offered 'option 1, 2, or 3' before any times existed (e0003). It also leaked internal reasoning and raw function-call JSON into its spoken reply while trying to work out the symptom field (e0020). None of the editable templates (availability_error, no_slots, booking_error, emergency_response) is involved in these failures.",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S14-t01-live",
+    "S01-t01-live",
+    "S02-t01-live",
+    "S03-t02-live"
+  ],
+  "validation_requirements": [
+    "Re-run S01, S02, S03 and S14 and confirm conversation_clarity passes: no question asks for a detail already given in e0002.",
+    "Confirm S03 records name 'Mira Sen' and phone '9876501300' (the corrected values) without asking for the phone again.",
+    "Confirm S14 never mentions option numbers before availability is returned, contains no leaked reasoning or JSON in any assistant turn, and still confirms a booking only after book_appointment returns ok true.",
+    "Re-run all currently passing scenarios, especially emergency, partial-intake, no-slots, availability-error and booking-error scenarios, and confirm no score drops or new critical failures.",
+    "Run each fixed scenario multiple trials to check that the improvement is stable and not a single-sample effect."
+  ]
+}

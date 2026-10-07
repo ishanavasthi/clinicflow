@@ -1,0 +1,51 @@
+{
+  "id": "S02",
+  "split": "development",
+  "title": "Several details in one message",
+  "initial_message": "Hi, I need a Orthopedics appointment for knee pain. I am Dev Shah, age 46, phone 9876501002.",
+  "patient": {
+    "name": "Dev Shah",
+    "phone": "9876501002",
+    "department": "Orthopedics",
+    "symptoms": "knee pain",
+    "age": "46"
+  },
+  "policy": {
+    "max_turns": 12,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "\\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\b|\\b\\d{1,2}:\\d{2}\\b|these (?:times|options)",
+        "reply": "__FIRST_OFFERED_TIME__",
+        "once": true
+      },
+      {
+        "id": "r2",
+        "match": "appointment|available|availability|slot|time|prefer",
+        "reply": "Yes, please tell me the actual available times first.",
+        "once": true
+      },
+      {
+        "id": "r3",
+        "match": "confirm|book it|shall I book|proceed",
+        "reply": "Yes, please book that appointment.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "book",
+    "appointment_count": 1,
+    "patient_fields": {
+      "name": "Dev Shah",
+      "phone": "9876501002"
+    },
+    "appointment_fields": {
+      "department": "Orthopedics"
+    },
+    "require_consent": true,
+    "max_appointments": 1
+  }
+}

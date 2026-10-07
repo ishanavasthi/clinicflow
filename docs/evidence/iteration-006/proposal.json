@@ -1,0 +1,62 @@
+{
+  "base_policy_hash": "a51e6ff76a7992b533754e15ce020006b11771d5b47665f20e4da0400365e975",
+  "changes": {
+    "availability_error": {
+      "after": "Could not check availability ({error}). Do not read the error text aloud. Before replying, call check_availability once more for the same department, using only date, time, or window filters the caller actually stated (otherwise null); do not ask the caller for a preferred date or time. If that returns times, offer them. If it still fails, tell the caller briefly that you cannot see open times right now and that they are welcome to call again later on their own, and do not say anything is booked. Do not offer a callback, transfer, waitlist, or follow-up, because none exist. Book only if availability returns times and the caller picks one of them.",
+      "before": "Could not check availability ({error}). Do not read the error text aloud. Tell the caller briefly that you cannot see open times right now, and do not say anything is booked. Do not offer a callback, transfer, waitlist, or follow-up, because none exist. You may call check_availability once more for the same department. If it still fails, tell the caller they are welcome to call again later on their own. Book only if availability returns times and the caller picks one of them."
+    },
+    "system_addendum": {
+      "after": "When intake is complete and the caller has not named a date or time, call check_availability right away with date, not_before and not_after set to null. Do not ask for a preferred date or time window; pass a filter only if the caller stated one. Never end your turn saying you will check or do something: either call the tool in the same turn or tell the caller the result. If a required intake detail is still missing, such as a phone number the caller declined to give, say plainly that it is needed before times can be offered, and ask once. If the caller says they are only comparing or not booking yet, list the options and do not ask them to pick one to book.",
+      "before": ""
+    }
+  },
+  "evidence_ids": [
+    "e0017",
+    "e0018",
+    "e0022",
+    "e0003",
+    "e0004",
+    "e0015",
+    "e0016",
+    "e0020",
+    "e0021",
+    "e0006",
+    "e0024",
+    "e0012",
+    "e0002"
+  ],
+  "expected_effects": [
+    "Agent no longer asks for a preferred date or time window when the caller has not offered one, which removes the 'Any day works' round-trip in S03, S04, S05 and S06.",
+    "After a transient availability error the agent silently retries with clean or null filters and offers the returned times. This avoids the S03 detour and also discards malformed filters like not_before='08?'.",
+    "Agent no longer ends a turn with an unfulfilled 'Let me check' (S04). It states plainly that the declined phone number is required before times can be offered.",
+    "When the caller says not to book yet (S06), or cannot choose (S05), the agent lists the options without pushing for a booking selection."
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_id": "no-unprompted-date-question-v1",
+  "regression_risks": [
+    "Callers who did state a date or time preference might now get unfiltered results if the agent over-applies the null-filter default. Scenarios that currently pass with date-filtered searches could break.",
+    "The phone-required instruction might make the agent sound pushy toward a caller who refuses. It could also make the agent claim the phone is required in flows where the backend would accept booking without it.",
+    "Retrying before replying could produce a longer silent gap. Under a persistent outage the agent might retry more than once if it misreads 'once more', so passing availability-failure scenarios need checking.",
+    "The 'do not ask them to pick one to book' rule could suppress a legitimate booking prompt when the caller's 'not yet' was ambiguous or later reversed. This could reduce completed bookings in scenarios that currently pass.",
+    "Moving the 'cannot see open times' message after the retry could cause the agent to skip informing the caller entirely if the retry succeeds partially or returns no slots. In that case the no_slots template must still apply."
+  ],
+  "root_cause_hypothesis": "In all four runs the agent asks for a preferred date or time window that the caller never offered, instead of calling check_availability with no date or time filters. The caller has to reply 'Any day works' each time, which costs clarity points (S03 e0017, S04 e0003, S05 e0022, S06 e0015). In S03 this question came straight out of the availability_error path: the template allows one retry but does not say to retry immediately and unfiltered, so the agent asked the caller for filters. The prompt has no default rule that missing date preferences mean 'search unfiltered'. Two secondary issues come from the same missing turn discipline. First, the agent ends turns by promising an action it does not take (S04 e0017), including never telling the caller the phone number is still required. Second, it pushes 'which option would you like to book?' after the caller said not to book yet (S06 e0020).",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S03-t01-live",
+    "S04-t02-live",
+    "S05-t02-live",
+    "S06-t05-live"
+  ],
+  "validation_requirements": [
+    "Re-run S03, S04, S05 and S06 and confirm the agent never asks for a preferred date or time unprompted. conversation_clarity should reach 1.0 with no critical failures.",
+    "Re-run all currently passing scenarios, especially those with caller-stated dates or time windows, booking_error, no_slots and emergency, and confirm no score drops.",
+    "In an availability-error scenario with a persistent failure, confirm exactly one retry, then the honest 'call again later' message with no callback, transfer or booking claim.",
+    "In S04, confirm the agent explicitly tells the caller the phone number is needed and does not end on an unfulfilled promise to check times.",
+    "In S06, confirm the agent lists options and does not ask which one to book after the caller says not to book yet. Confirm no appointment rows are created."
+  ]
+}

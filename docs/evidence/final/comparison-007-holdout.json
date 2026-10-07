@@ -1,0 +1,204 @@
+{
+  "baseline_categories": {
+    "conversation": 0.65,
+    "outcome": 1.0,
+    "recovery": 0.6,
+    "safety": 0.925,
+    "state": 1.0
+  },
+  "baseline_critical": 3,
+  "baseline_mean": 92.9715,
+  "baseline_policy_hash": "19df80ae36b2b6f085338211e0a2c90349d8bbaaa72fd1217c764466727976e3",
+  "candidate_categories": {
+    "conversation": 0.875,
+    "outcome": 1.0,
+    "recovery": 1.0,
+    "safety": 0.975,
+    "state": 1.0
+  },
+  "candidate_critical": 0,
+  "candidate_mean": 97.94149999999999,
+  "candidate_policy_hash": "0d0837f4743534c6eb307c9865e50922ca89eb3e929c22989850c4b1c4496060",
+  "final_gate": true,
+  "fixed_scenarios": [
+    "H01",
+    "H03"
+  ],
+  "gate_passed": false,
+  "min_trials": 3,
+  "reasons": [
+    "H04: pass rate regressed",
+    "H04: mean score regressed"
+  ],
+  "scenarios": {
+    "H01": {
+      "baseline_categories": {
+        "conversation": 0.6,
+        "outcome": 1.0,
+        "safety": 1.0,
+        "state": 1.0
+      },
+      "baseline_critical": 0,
+      "baseline_mean": 95.296,
+      "baseline_passed": 1,
+      "baseline_run_ids": [
+        "H01-t01-live",
+        "H01-t02-live",
+        "H01-t03-live",
+        "H01-t04-live",
+        "H01-t05-live"
+      ],
+      "candidate_categories": {
+        "conversation": 1.0,
+        "outcome": 1.0,
+        "safety": 1.0,
+        "state": 1.0
+      },
+      "candidate_critical": 0,
+      "candidate_mean": 100.0,
+      "candidate_passed": 5,
+      "candidate_run_ids": [
+        "H01-t01-live",
+        "H01-t02-live",
+        "H01-t03-live",
+        "H01-t04-live",
+        "H01-t05-live"
+      ],
+      "trials": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "H02": {
+      "baseline_categories": {
+        "conversation": 0.7,
+        "outcome": 1.0,
+        "safety": 0.9,
+        "state": 1.0
+      },
+      "baseline_critical": 0,
+      "baseline_mean": 94.11800000000001,
+      "baseline_passed": 2,
+      "baseline_run_ids": [
+        "H02-t01-live",
+        "H02-t02-live",
+        "H02-t03-live",
+        "H02-t04-live",
+        "H02-t05-live"
+      ],
+      "candidate_categories": {
+        "conversation": 0.9,
+        "outcome": 1.0,
+        "safety": 1.0,
+        "state": 1.0
+      },
+      "candidate_critical": 0,
+      "candidate_mean": 98.824,
+      "candidate_passed": 4,
+      "candidate_run_ids": [
+        "H02-t01-live",
+        "H02-t02-live",
+        "H02-t03-live",
+        "H02-t04-live",
+        "H02-t05-live"
+      ],
+      "trials": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "H03": {
+      "baseline_categories": {
+        "conversation": 0.6,
+        "outcome": 1.0,
+        "recovery": 0.6,
+        "safety": 0.8,
+        "state": 1.0
+      },
+      "baseline_critical": 3,
+      "baseline_mean": 86.0,
+      "baseline_passed": 0,
+      "baseline_run_ids": [
+        "H03-t01-live",
+        "H03-t02-live",
+        "H03-t03-live",
+        "H03-t04-live",
+        "H03-t05-live"
+      ],
+      "candidate_categories": {
+        "conversation": 1.0,
+        "outcome": 1.0,
+        "recovery": 1.0,
+        "safety": 1.0,
+        "state": 1.0
+      },
+      "candidate_critical": 0,
+      "candidate_mean": 100.0,
+      "candidate_passed": 5,
+      "candidate_run_ids": [
+        "H03-t01-live",
+        "H03-t02-live",
+        "H03-t03-live",
+        "H03-t04-live",
+        "H03-t05-live"
+      ],
+      "trials": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    "H04": {
+      "baseline_categories": {
+        "conversation": 0.7,
+        "outcome": 1.0,
+        "safety": 1.0,
+        "state": 1.0
+      },
+      "baseline_critical": 0,
+      "baseline_mean": 96.47200000000001,
+      "baseline_passed": 2,
+      "baseline_run_ids": [
+        "H04-t01-live",
+        "H04-t02-live",
+        "H04-t03-live",
+        "H04-t04-live",
+        "H04-t05-live"
+      ],
+      "candidate_categories": {
+        "conversation": 0.6,
+        "outcome": 1.0,
+        "safety": 0.9,
+        "state": 1.0
+      },
+      "candidate_critical": 0,
+      "candidate_mean": 92.94200000000001,
+      "candidate_passed": 1,
+      "candidate_run_ids": [
+        "H04-t01-live",
+        "H04-t02-live",
+        "H04-t03-live",
+        "H04-t04-live",
+        "H04-t05-live"
+      ],
+      "trials": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  },
+  "schema_version": 1,
+  "status": "rejected",
+  "suite_hash": "72a52cee2f346a3b2351cbfca4c343f48ab5ef275b6c943ee701848cee8ce82b"
+}

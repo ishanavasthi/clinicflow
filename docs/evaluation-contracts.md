@@ -1,0 +1,19 @@
+# Evaluation implementation contracts
+
+Initial shared contract; lead owns changes. All artifacts use JSON-compatible dictionaries.
+
+Scenario keys: `id`, `split` (`development` or `holdout`), `title`, `initial_message`, `patient` (synthetic facts), `policy` (patient behavior), `fault` (fault specification or null), `expected` (invariants). Scenarios live in `evals/scenarios/*.json`; scorer owns their exact policy/expected fields and coordinates with runner author.
+
+Run keys: `schema_version: 1`, `run_id`, `scenario_id`, `trial`, `mode` (`live` or `scripted`), `status` (`completed`, `agent_error`, `patient_error`, `blocked`), `manifest`, `events`, `final_state`. May include `scenario` snapshot and `error`. Event keys: `id`, `kind` (`user`, `assistant`, `tool_call`, `tool_result`, `state`, `error`), `turn`; applicable fields are `text`, `name`, `arguments`, `result`. Link tool results with `call_id` to their tool-call event ID. Preserve failed calls. Final state contains `patients`, `appointments`, `slots`, and `call_state`; rows must be independently read from SQLite rather than inferred from agent output.
+
+Manifest: code revision, source hash, agent provider/model/settings, prompt hash, policy hash, fixture hash, suite hash, evaluator version, dependency versions, fixed clock. Record absence explicitly. No credentials. Mode `scripted` is only for offline harness/tool tests and must never be reported as evidence of live LLM improvement.
+
+Score interface: `score_run(run: dict, scenario: dict) -> dict`. Scorecard keys: `run_id`, `scenario_id`, `score` (0–100), `passed`, `criteria` (list), `critical_failures` (list of violation IDs), `evaluator_errors` (list). Each criterion has `id`, `category`, `score` (0–1 or null if not applicable), `reason`, `evidence` (event IDs or `final_state.<path>`), `critical` (bool). Categories/weights live in `evals/contracts.py`.
+
+Runner CLI: `python -m evals.runner --suite development --output <directory> --repeat 3`, with explicit provider/config and budget options as needed. Write individual `<run_id>.json` files plus `summary.json` with `runs` and `scorecards` lists (each containing full objects). Retain blocked/failed attempts. Improvement/compare modules consume these summary files. Offline scripted checks must use an explicit mode.
+
+Improvement proposal: schema version, proposal ID, source run/evidence IDs, base policy hash, root-cause hypothesis, exact bounded changes, expected effects, regression risks, validation requirements, generator metadata. Initial allowed edit surface is a JSON policy file containing `system_addendum`, `emergency_response`, `availability_error`, `no_slots`, `booking_error`. Lead extracts the original response text into `agent/policies/baseline.json` and wires `CLINICFLOW_POLICY_PATH` without changing baseline semantics. Generator must consume actual failed development runs and cannot edit evaluation expectations. Applying a proposal produces a new policy file and provenance, leaving the base immutable.
+
+Comparison consumes summary JSON and must verify comparable model/settings, fixture/suite/evaluator identities, modes, unique scenario/trial coverage, complete non-error scores, and repeated trials before claiming improvement. Reject scripted artifacts as assignment evidence. Final submission gate additionally requires zero critical failures and complete expected scenario coverage. Held-out suites are evaluated separately after candidate selection.
+
+Baseline source revision before instrumentation: `2b9220c533cbfa2571ca70b10355955f9f9e1cff`. The lead preserves a scored instrumented baseline before applying behavioral changes. Children do not commit, push, edit shared contracts, or alter files outside their ownership without coordinating with the lead. Commits must contain no co-author trailers.

@@ -1,0 +1,33 @@
+{
+  "id": "H04",
+  "split": "holdout",
+  "title": "Held-out time preference",
+  "initial_message": "I need Orthopedics tomorrow after 6 PM only. I am Bilal Khan, age 47, phone 9876502004, for shoulder pain.",
+  "patient": {
+    "name": "Bilal Khan",
+    "phone": "9876502004",
+    "department": "Orthopedics",
+    "symptoms": "shoulder pain",
+    "age": "47",
+    "timing": "Only tomorrow after 6 PM works for me."
+  },
+  "policy": {
+    "max_turns": 7,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "time|available|appointment|slot",
+        "reply": "Earlier than 6 PM will not work. Please do not book one.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "clarify",
+    "appointment_count": 0,
+    "requested_time": "after_18",
+    "forbid_substitution": true
+  }
+}

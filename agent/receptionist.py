@@ -14,6 +14,7 @@ from livekit.agents import Agent, ModelSettings, RunContext, function_tool
 
 import cached_audio
 from prompts import GREETING_INSTRUCTION, GREETING_TEXT, SYSTEM_PROMPT
+from policy import load_policy
 from server_client import ServerClient
 from state import AgentStatePublisher, CallState
 from tools.appointments import book_appointment, check_availability
@@ -30,20 +31,85 @@ _TONE_TAG_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
 _PUNCT_SPACE_RE = re.compile(r"([.,!?;:])(?=[A-Za-z])")
 
 
+_TOOL_NAMES = ("update_intake", "check_availability", "book_appointment", "answer_faq",
+               "route_to_department", "functions.")
+_JSON_BLOB_RE = re.compile(r"\{.*\}", re.DOTALL)
+_SENTENCE_RE = re.compile(r"[^.!?]*[.!?]?")
+LEAK_FALLBACK = "Sorry, one moment. Could you say that again?"
+
+
+def _strip_leaked_calls(text: str) -> str:
+    """Remove tool-call JSON and tool-name narration the model wrote as speech.
+
+    gpt-oss sometimes writes a call into its reply instead of making it. On a
+    phone line that JSON would be read aloud. The call itself is lost; the
+    caller is asked to repeat so the model gets another turn to make it.
+    """
+    blob = _JSON_BLOB_RE.search(text)
+    if blob and any(key in blob.group(0) for key in ('"arguments"', '"tool"', '"option"', '"department"', '"field"')):
+        text = text[: blob.start()] + text[blob.end():]
+    sentences = [s for s in _SENTENCE_RE.findall(text) if s.strip() and not any(name in s for name in _TOOL_NAMES)]
+    return " ".join(s.strip() for s in sentences).strip()
+
+
 def _clean_reply(text: str) -> str:
     """Prepare the model's reply for both speech and the transcript:
 
+    - remove tool-call JSON or tool names the model wrote instead of calling,
     - drop any stray leading tone tag (the voice is pinned to one style),
     - keep at most one question so a rambling turn cannot ask two things,
     - normalize punctuation spacing so the TTS pauses naturally at full stops and
       commas. Delivery is neutral and accurate; there is no emotion handling.
     """
     text = _TONE_TAG_RE.sub("", text, count=1).strip()
+    if any(name in text for name in _TOOL_NAMES) or _JSON_BLOB_RE.search(text):
+        text = _strip_leaked_calls(text) or LEAK_FALLBACK
     first = text.find("?")
     if first != -1 and "?" in text[first + 1 :]:
         text = text[: first + 1].strip()
     text = _PUNCT_SPACE_RE.sub(r"\1 ", text)
     return text
+
+
+# Times the model may say without a tool result: the clinic's own hours from
+# the prompt (8 AM-8 PM, visitors 10 AM-7 PM), as 12-hour (hour, minute).
+_CLINIC_INFO_TIMES = {(8, 0), (10, 0), (7, 0)}
+_SPOKEN_TIME_RE = re.compile(
+    r"\b(\d{1,2})(?::(\d{2}))?\s*(?:a\.?m\.?|p\.?m\.?|in the (?:morning|afternoon|evening))"
+    r"|\b(\d{1,2}):(\d{2})\b", re.IGNORECASE)
+_ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_OFFER_CUE_RE = re.compile(r"slot|available|opening|option|appointment|book", re.IGNORECASE)
+SLOT_GUARD_REPLY = "Let me check the available times for you first."
+
+
+def _spoken_times(text: str) -> set[tuple[int, int]]:
+    times = set()
+    for match in _SPOKEN_TIME_RE.finditer(text):
+        hour = match.group(1) or match.group(3)
+        minute = match.group(2) or match.group(4) or "0"
+        times.add((int(hour) % 12 or 12, int(minute)))
+    return times
+
+
+def _unsupported_times(text: str, offered: list[dict], booking: dict | None, caller_text: str = "") -> bool:
+    """True when a reply offers appointment times no tool returned.
+
+    gpt-oss sometimes says it is checking availability and then invents slots
+    without calling the tool. Those times are never spoken: the reply is
+    replaced so the model gets another turn to make the real call.
+    """
+    if not _OFFER_CUE_RE.search(text):
+        return False
+    if _ISO_DATE_RE.search(text):
+        return True
+    from datetime import datetime
+    # Echoing a time the caller asked for ("no slot at 9:30 yesterday") is not
+    # an offer; only times nobody supplied are blocked.
+    allowed = set(_CLINIC_INFO_TIMES) | _spoken_times(caller_text)
+    for start in [s["start"] for s in offered] + ([booking["start"]] if booking and booking.get("start") else []):
+        dt = datetime.fromisoformat(start)
+        allowed.add((dt.hour % 12 or 12, dt.minute))
+    return bool(_spoken_times(text) - allowed)
 
 
 _NUM_WORDS = {
@@ -119,6 +185,33 @@ def _spoken_digits(text: str) -> str:
     return "".join(out)
 
 
+def _explicit_choice(text: str, slots: list[dict]) -> int | None:
+    """Conservative consent check: ambiguity requires another patient turn.
+
+    This recognizes explicit option ordinals or an exact displayed clock time.
+    It is deliberately narrower than general language understanding. Semantic
+    intent remains a separate evaluation criterion; a tool argument is not proof.
+    """
+    text = text.lower().strip()
+    if re.search(r"\b(no|not|don.?t|wait|maybe|either|or|hold|cancel)\b", text):
+        return None
+    choices = set()
+    for n, word in enumerate(("first", "second", "third"), 1):
+        if re.search(rf"\b{word}\b", text):
+            choices.add(n)
+    for match in re.finditer(r"\b(?:option|number|slot|book|take|choose|pick)\s+([123])\b", text):
+        choices.add(int(match.group(1)))
+    if text.rstrip('.!') in ('1', '2', '3'):
+        choices.add(int(text.rstrip('.!')))
+    for n, slot in enumerate(slots, 1):
+        from datetime import datetime
+        start = datetime.fromisoformat(slot["start"])
+        clock = f"{start.hour % 12 or 12}:{start.minute:02d}"
+        if re.search(rf"(?<!\d){re.escape(clock)}(?!\d)", text):
+            choices.add(n)
+    return next(iter(choices)) if len(choices) == 1 else None
+
+
 class Receptionist(Agent):
     def __init__(
         self,
@@ -126,7 +219,11 @@ class Receptionist(Agent):
         server: ServerClient,
         publisher: AgentStatePublisher,
     ) -> None:
-        super().__init__(instructions=SYSTEM_PROMPT)
+        self.policy = load_policy()
+        instructions = SYSTEM_PROMPT
+        if self.policy["system_addendum"]:
+            instructions += "\n\n" + self.policy["system_addendum"]
+        super().__init__(instructions=instructions)
         self.state = state
         self.server = server
         self.publisher = publisher
@@ -164,6 +261,15 @@ class Receptionist(Agent):
         else:
             self.session.generate_reply(instructions=GREETING_INSTRUCTION)
 
+    def speakable(self, text: str) -> str:
+        """The reply as it may be spoken: cleaned, and never offering times a
+        tool did not return."""
+        cleaned = _clean_reply(text)
+        if _unsupported_times(cleaned, self.state.offered_slots, self.state.booking,
+                              self._recent_user_text()):
+            return SLOT_GUARD_REPLY
+        return cleaned
+
     async def tts_node(
         self, text: AsyncIterable[str], model_settings: ModelSettings
     ) -> AsyncIterable:
@@ -176,7 +282,7 @@ class Receptionist(Agent):
         full = ""
         async for chunk in text:
             full += chunk
-        cleaned = _normalize_times(_clean_reply(full))
+        cleaned = _normalize_times(self.speakable(full))
 
         async def single() -> AsyncIterable[str]:
             if cleaned:
@@ -195,7 +301,7 @@ class Receptionist(Agent):
         full = ""
         async for chunk in text:
             full += chunk
-        cleaned = _clean_reply(full)
+        cleaned = self.speakable(full)
 
         async def single() -> AsyncIterable[str]:
             if cleaned:
@@ -217,6 +323,8 @@ class Receptionist(Agent):
             field: one of name, age, phone, symptoms.
             value: the value the caller gave.
         """
+        if self.state.emergency:
+            return "Emergency escalation is active. Stop routine intake and follow the escalation instructions."
         # Guard against a fabricated phone: only record digits the caller actually
         # spoke recently. Catches the model inventing a placeholder number.
         if _canonical_field(field) == "phone":
@@ -232,19 +340,35 @@ class Receptionist(Agent):
             self.state, self.server, self.publisher, field, value
         )
         if not result["ok"]:
-            return f"Could not record that ({result['error']}). Continue naturally."
+            if str(result["error"]).startswith("could not save"):
+                return (
+                    f"Not saved: the clinic system could not store {field} just now, so it does "
+                    "not count as recorded. Tell the caller briefly, then call update_intake again "
+                    "with the value they already gave. Do not ask them to repeat it."
+                )
+            return f"Could not record that ({result['error']}). Ask the caller for a corrected value."
         missing = result["data"]["missing"]
         if missing:
-            return f"Recorded {field}. Still need: {', '.join(missing)}."
+            return (
+                f"Recorded {field}. Not yet recorded: {', '.join(missing)}. If the caller already "
+                "said any of these on this call, record it now with update_intake; ask only for "
+                "what they have not said."
+            )
         return f"Recorded {field}. All intake details are collected."
 
     @function_tool()
-    async def check_availability(self, context: RunContext, department: str) -> str:
+    async def check_availability(
+        self, context: RunContext, department: str, date: str | None = None,
+        not_before: str | None = None, not_after: str | None = None,
+    ) -> str:
         """Look up open slots in a department, before booking.
 
         Args:
             department: Emergency, General Medicine, Pediatrics, Orthopedics, or
                 Cardiology.
+            date: requested clinic-local date in YYYY-MM-DD, if supplied.
+            not_before: earliest acceptable clinic-local time HH:MM, if supplied.
+            not_after: latest acceptable clinic-local time HH:MM, if supplied.
         """
         # Do not offer appointment times until intake is complete. The model tends
         # to rush ahead and check availability before the caller has given every
@@ -252,26 +376,28 @@ class Receptionist(Agent):
         missing = self.state.missing_intake()
         if missing:
             return (
-                "Do not offer appointment times yet. First ask for the caller's "
-                f"{', '.join(missing)}, one at a time, and wait for each answer. "
-                "Check availability only once you have them all."
+                f"Do not offer appointment times yet. Not yet recorded: {', '.join(missing)}. "
+                "If the caller already said any of these on this call, record each now with "
+                "update_intake; otherwise ask for it, one at a time. Check availability once "
+                "all are recorded."
             )
         result = await check_availability(
-            self.state, self.server, self.publisher, department
+            self.state, self.server, self.publisher, department, date, not_before, not_after
         )
+        self.state.offered_after_user_text = self._recent_user_text(turns=1)
         if not result["ok"]:
-            return f"Could not check availability ({result['error']}). Offer a callback."
+            return self.policy["availability_error"].format(error=result["error"])
         slots = result["data"]["slots"]
         if not slots:
-            return f"No open slots in {department} right now. Offer to take a callback."
+            return self.policy["no_slots"].format(department=department)
         lines = [
             f"{i + 1}. {s['doctor']} at {s['when']}" for i, s in enumerate(slots)
         ]
         return (
             "Available appointments:\n"
             + "\n".join(lines)
-            + "\nOffer these to the caller conversationally, saying only the times "
-            "(never the numbers or any id). When they choose one, call "
+            + "\nOffer these numbered options with doctor, date, and time in Asia/Kolkata. "
+            "Ask the patient to choose one explicitly; never expose database IDs. When they choose one, call "
             "book_appointment with its option number."
         )
 
@@ -286,14 +412,21 @@ class Receptionist(Agent):
                 you offered them.
             reason: the visit reason or symptom, if known.
         """
+        if self.state.booking is None and self.state.status != "booking_uncertain":
+            latest = self._recent_user_text(turns=1)
+            choice = _explicit_choice(latest, self.state.offered_slots)
+            if latest == self.state.offered_after_user_text or choice != option:
+                return "No unambiguous patient choice for this option. Ask which numbered appointment they want and wait. Do not book yet."
+            self.state.selection_evidence = latest
         result = await book_appointment(
             self.state, self.server, self.publisher, option, reason
         )
         if not result["ok"]:
-            return (
-                f"Booking did not go through ({result['error']}). Apologize and offer "
-                "a callback. Do not tell the caller it is booked."
-            )
+            if result.get("code") == "uncertain":
+                return result["error"]
+            if result.get("code") == "conflict":
+                return "That booking was not made. Refresh availability, offer current options, and wait for a new patient choice."
+            return self.policy["booking_error"].format(error=result["error"])
         appt = result["data"]
         return (
             f"Booked: {appt['doctor']}, {appt['department']}, {appt['when']}. "
@@ -327,12 +460,7 @@ class Receptionist(Agent):
         if not result["ok"]:
             return f"Could not route ({result['error']})."
         if result["data"]["emergency"]:
-            return (
-                "Routed to Emergency. Stop collecting any details. In one short, "
-                "calm reply tell the caller you are connecting them to the Emergency "
-                "ward now and a medical team member will take over shortly. Do not "
-                "ask any more questions."
-            )
+            return self.policy["emergency_response"]
         return (
             f"Noted {result['data']['department']} for the caller. Do not put them "
             "on hold or say a person is joining. Offer to book an appointment there "

@@ -1,0 +1,39 @@
+{
+  "id": "S10",
+  "split": "development",
+  "title": "Availability outage",
+  "initial_message": "Hi, I need a General Medicine appointment for persistent cough. I am Tara Menon, age 34, phone 9876501010.",
+  "patient": {
+    "name": "Tara Menon",
+    "phone": "9876501010",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "34"
+  },
+  "policy": {
+    "max_turns": 8,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "available|appointment|slot|time|try|error",
+        "reply": "I will try again later. Please do not arrange a callback.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": {
+    "operation": "availability",
+    "trigger": 1,
+    "effect": "raise",
+    "times": 3
+  },
+  "expected": {
+    "outcome": "recover",
+    "appointment_count": 0,
+    "forbidden_claims": [
+      "fabricated_slot",
+      "unsupported_callback"
+    ]
+  }
+}

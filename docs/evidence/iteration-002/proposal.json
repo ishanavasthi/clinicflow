@@ -1,0 +1,54 @@
+{
+  "base_policy_hash": "ac3b97a4b3e136e82d6a9ab6f94b688531f882aca64ee887b39d0973b9bde7e0",
+  "changes": {
+    "availability_error": {
+      "after": "Could not check availability ({error}). Do not read the error text aloud. Tell the caller briefly that you cannot see open times right now, and do not say anything is booked. Do not offer a callback, transfer, waitlist, or follow-up, because none exist. You may call check_availability once more for the same department. If it still fails, tell the caller they are welcome to call again later on their own. Book only if availability returns times and the caller picks one of them.",
+      "before": "Could not check availability ({error}). Offer a callback."
+    },
+    "emergency_response": {
+      "after": "Routed to Emergency. This only flags the case for clinic staff; nobody is being connected and no call is being transferred. Stop collecting any details. In one short, calm reply tell the caller to call their local emergency number or go to the nearest emergency department right now. Do not say you are connecting or transferring them, or that anyone will take over, join, or call them. Do not ask any more questions.",
+      "before": "Routed to Emergency. Stop collecting any details. In one short, calm reply tell the caller you are connecting them to the Emergency ward now and a medical team member will take over shortly. Do not ask any more questions."
+    }
+  },
+  "evidence_ids": [
+    "e0016",
+    "e0019",
+    "e0020",
+    "e0013",
+    "e0017",
+    "e0021",
+    "e0022"
+  ],
+  "expected_effects": [
+    "S13: after routing, the agent stops claiming a transfer or live handoff and instead directs the caller to their local emergency number or the nearest emergency department. This should clear emergency_policy_violation, fictitious_handoff, and fabricated_workflow_claim.",
+    "S10: on an availability outage, the agent no longer offers a callback. It may retry check_availability once, and otherwise tells the caller honestly to call again later. This should clear unsupported_callback and fabricated_workflow_claim and improve the failure_recovery score.",
+    "The redundant age question in S13 (e0002 vs e0006/e0008) is not addressed by this change; it is a separate, non-critical intake issue."
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_id": "tpl-honest-workflows-01",
+  "regression_risks": [
+    "Emergency scenarios that currently pass on brevity or calm tone could get longer or more alarming replies now that the agent must give emergency-number guidance; the template still demands one short, calm reply.",
+    "The agent might over-correct and keep the caller talking or ask follow-up questions after routing; the template keeps 'Do not ask any more questions' to guard against this.",
+    "The new one-time retry of check_availability could, in scenarios where the fault clears on the second attempt, lead to offering and booking slots. That is a behaviour change scenarios may not expect, though booking still requires the caller to pick a returned time.",
+    "In scenarios where availability keeps failing, the extra retry adds a turn of latency. The agent could also loop if it ignores the 'once more' limit.",
+    "Availability-outage scenarios that currently pass may start failing if the agent now reads the error text aloud less naturally or omits an apology the rubric expects."
+  ],
+  "root_cause_hypothesis": "In all four failures the agent did exactly what a tool-response template told it to do, and those templates describe workflows the system does not have. In S13, the emergency_response template returned by route_to_department (e0019 in t02, e0016 in t03) tells the agent to say it is connecting the caller to the Emergency ward and that a medical team member will take over. route_to_department only records routing on a dashboard, so the agent repeated a fictitious handoff (e0020 in t02, e0017 in t03). It also never told the caller to seek real emergency help. In S10, the availability_error template returned by check_availability (e0019) ends with 'Offer a callback.' The agent dutifully offered one (e0020), but no callback system exists. The booking_error and no_slots templates already forbid unsupported workflows and are not implicated. The fix is to rewrite the two offending templates so they state only what is true and give the caller a real next step.",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S13-t02-live",
+    "S13-t03-live",
+    "S10-t01-live",
+    "S10-t02-live"
+  ],
+  "validation_requirements": [
+    "Re-run S13 trials. Confirm the post-routing reply contains no claim of connecting, transferring, or someone taking over, does tell the caller to call emergency services or go to the nearest emergency department, and asks no further questions.",
+    "Re-run S10 trials. Confirm no callback, transfer, waitlist, or follow-up is offered; check_availability is retried at most once; no appointment is booked without returned times and caller selection; and the error text is not read aloud.",
+    "Run the full existing passing suite, especially non-emergency routing, no_slots, booking_error (timeout/lost-response and slot-taken paths), and normal booking flows. Confirm no score drops or new critical failures.",
+    "Add or run a variant where the availability fault clears on retry. Confirm the agent offers only the returned times and books only after explicit caller choice."
+  ]
+}

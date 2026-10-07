@@ -1,0 +1,38 @@
+{
+  "base_policy_hash": "19df80ae36b2b6f085338211e0a2c90349d8bbaaa72fd1217c764466727976e3",
+  "candidate_policy_hash": "ac3b97a4b3e136e82d6a9ab6f94b688531f882aca64ee887b39d0973b9bde7e0",
+  "changed_keys": [
+    "booking_error",
+    "no_slots"
+  ],
+  "evidence_ids": [
+    "e0022",
+    "e0023",
+    "e0025",
+    "e0028",
+    "e0029",
+    "e0027",
+    "e0026",
+    "e0031",
+    "e0039",
+    "e0030",
+    "e0032",
+    "e0033",
+    "final_state.appointments"
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_hash": "6850d4281c68667b8b80f1f3186fbe41f2ba3cac88f039ddb54a1807ae7f8f56",
+  "proposal_id": "remove-callback-offers-from-error-templates",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S08-t02-live",
+    "S11-t02-live",
+    "S07-t02-live",
+    "S05-t02-live"
+  ],
+  "source_summary_hash": "d85d0a9a4fb2e83aa9ac56e38f0747f70aa6f6f0c765afcbea440425930fe2c7"
+}
