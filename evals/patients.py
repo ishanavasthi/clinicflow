@@ -43,6 +43,7 @@ FACT_QUESTIONS = {
 # A patient with no stated timing preference is flexible and asks for real times.
 DEFAULT_TIMING = "Any day works. Please tell me the available times."
 
+REPEAT_REQUEST = re.compile(r"say that again|repeat that|didn.t catch|come again", re.IGNORECASE)
 CONFIRMATION = re.compile(r"confirm|correct|right\?|is that", re.IGNORECASE)
 # A patient repeats their slot choice if the agent re-offers, up to this many times.
 MAX_SLOT_CHOICES = 3
@@ -68,6 +69,7 @@ class ScriptedPatient:
         self.facts.setdefault("timing", DEFAULT_TIMING)
         self.used: set[str] = set()
         self.slot_choices = 0
+        self.last_reply: str | None = None
         self.unmatched: str | None = None
 
     def _fact_reply(self, text: str) -> str | None:
@@ -87,9 +89,18 @@ class ScriptedPatient:
         return value.casefold() in text.casefold()
 
     def reply(self, assistant_text: str, offered_slots: list[dict]) -> str | None:
+        answer = self._reply(assistant_text, offered_slots)
+        if answer is not None:
+            self.last_reply = answer
+        return answer
+
+    def _reply(self, assistant_text: str, offered_slots: list[dict]) -> str | None:
         stop = self.policy.get("stop_after")
         if stop and re.search(stop, assistant_text, re.IGNORECASE):
             return None
+        # A caller asked to repeat themselves does, once per request.
+        if REPEAT_REQUEST.search(assistant_text) and self.last_reply:
+            return self.last_reply
         fact = self._fact_reply(assistant_text)
         if fact is not None:
             return fact

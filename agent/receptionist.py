@@ -31,15 +31,39 @@ _TONE_TAG_RE = re.compile(r"^\s*\[[^\]]*\]\s*")
 _PUNCT_SPACE_RE = re.compile(r"([.,!?;:])(?=[A-Za-z])")
 
 
+_TOOL_NAMES = ("update_intake", "check_availability", "book_appointment", "answer_faq",
+               "route_to_department", "functions.")
+_JSON_BLOB_RE = re.compile(r"\{.*\}", re.DOTALL)
+_SENTENCE_RE = re.compile(r"[^.!?]*[.!?]?")
+LEAK_FALLBACK = "Sorry, one moment. Could you say that again?"
+
+
+def _strip_leaked_calls(text: str) -> str:
+    """Remove tool-call JSON and tool-name narration the model wrote as speech.
+
+    gpt-oss sometimes writes a call into its reply instead of making it. On a
+    phone line that JSON would be read aloud. The call itself is lost; the
+    caller is asked to repeat so the model gets another turn to make it.
+    """
+    blob = _JSON_BLOB_RE.search(text)
+    if blob and any(key in blob.group(0) for key in ('"arguments"', '"tool"', '"option"', '"department"', '"field"')):
+        text = text[: blob.start()] + text[blob.end():]
+    sentences = [s for s in _SENTENCE_RE.findall(text) if s.strip() and not any(name in s for name in _TOOL_NAMES)]
+    return " ".join(s.strip() for s in sentences).strip()
+
+
 def _clean_reply(text: str) -> str:
     """Prepare the model's reply for both speech and the transcript:
 
+    - remove tool-call JSON or tool names the model wrote instead of calling,
     - drop any stray leading tone tag (the voice is pinned to one style),
     - keep at most one question so a rambling turn cannot ask two things,
     - normalize punctuation spacing so the TTS pauses naturally at full stops and
       commas. Delivery is neutral and accurate; there is no emotion handling.
     """
     text = _TONE_TAG_RE.sub("", text, count=1).strip()
+    if any(name in text for name in _TOOL_NAMES) or _JSON_BLOB_RE.search(text):
+        text = _strip_leaked_calls(text) or LEAK_FALLBACK
     first = text.find("?")
     if first != -1 and "?" in text[first + 1 :]:
         text = text[: first + 1].strip()
@@ -266,10 +290,20 @@ class Receptionist(Agent):
             self.state, self.server, self.publisher, field, value
         )
         if not result["ok"]:
-            return f"Could not record that ({result['error']}). Continue naturally."
+            if str(result["error"]).startswith("could not save"):
+                return (
+                    f"Not saved: the clinic system could not store {field} just now, so it does "
+                    "not count as recorded. Tell the caller briefly, then call update_intake again "
+                    "with the value they already gave. Do not ask them to repeat it."
+                )
+            return f"Could not record that ({result['error']}). Ask the caller for a corrected value."
         missing = result["data"]["missing"]
         if missing:
-            return f"Recorded {field}. Still need: {', '.join(missing)}."
+            return (
+                f"Recorded {field}. Not yet recorded: {', '.join(missing)}. If the caller already "
+                "said any of these on this call, record it now with update_intake; ask only for "
+                "what they have not said."
+            )
         return f"Recorded {field}. All intake details are collected."
 
     @function_tool()
@@ -292,9 +326,10 @@ class Receptionist(Agent):
         missing = self.state.missing_intake()
         if missing:
             return (
-                "Do not offer appointment times yet. First ask for the caller's "
-                f"{', '.join(missing)}, one at a time, and wait for each answer. "
-                "Check availability only once you have them all."
+                f"Do not offer appointment times yet. Not yet recorded: {', '.join(missing)}. "
+                "If the caller already said any of these on this call, record each now with "
+                "update_intake; otherwise ask for it, one at a time. Check availability once "
+                "all are recorded."
             )
         result = await check_availability(
             self.state, self.server, self.publisher, department, date, not_before, not_after

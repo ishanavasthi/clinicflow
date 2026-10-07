@@ -395,7 +395,13 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                             messages.append({"role": "tool", "tool_call_id": call["id"], "content": str(output)})
                         continue
                     from receptionist import _clean_reply
-                    spoken = _clean_reply(message.get("content") or "")
+                    raw = message.get("content") or ""
+                    spoken = _clean_reply(raw)
+                    if any(name in raw for name in ("update_intake", "check_availability", "book_appointment",
+                                                    "answer_faq", "route_to_department", "functions.")):
+                        # The model wrote a tool call as speech. Keep the raw text in
+                        # the trace so the failure stays visible after cleaning.
+                        emit("leaked_tool_call", text=raw)
                     if not spoken:
                         raise RuntimeError("model produced neither a tool call nor assistant text")
                     emit("assistant", text=spoken)

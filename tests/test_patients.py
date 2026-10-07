@@ -44,6 +44,11 @@ class PatientTests(unittest.TestCase):
         p = patient("S01")
         self.assertNotIn("The first time", p.reply("We have Thursday at 9:30 AM. Which works?", []) or "")
 
+    def test_repeats_last_answer_when_asked_to(self):
+        p = patient("S01")
+        first = p.reply("May I have your phone number, please?", [])
+        self.assertEqual(p.reply("Sorry, one moment. Could you say that again?", []), first)
+
     def test_unmatched_turn_ends_call_and_is_recorded(self):
         p = patient("S06")
         self.assertIsNone(p.reply("Lovely weather today.", []))
