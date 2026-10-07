@@ -37,6 +37,11 @@ class SlotGuardTests(unittest.TestCase):
     def test_a_time_not_in_the_offer_is_blocked(self):
         self.assertTrue(_unsupported_times("We have openings at 9:30 AM or 3:30 PM.", OFFERED, None))
 
+    def test_echoing_the_callers_requested_time_is_allowed(self):
+        reply = "We cannot book an appointment at 9:30 AM yesterday because that date has passed."
+        self.assertFalse(_unsupported_times(reply, [], None, "I need General Medicine yesterday at 9:30 AM."))
+        self.assertTrue(_unsupported_times("We have openings at 11 AM.", [], None, "I need yesterday at 9:30 AM."))
+
     def test_clinic_hours_are_not_appointment_offers(self):
         self.assertFalse(_unsupported_times("We are open from 8 AM to 8 PM, Monday to Saturday.", [], None))
 

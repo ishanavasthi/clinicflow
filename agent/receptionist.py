@@ -91,7 +91,7 @@ def _spoken_times(text: str) -> set[tuple[int, int]]:
     return times
 
 
-def _unsupported_times(text: str, offered: list[dict], booking: dict | None) -> bool:
+def _unsupported_times(text: str, offered: list[dict], booking: dict | None, caller_text: str = "") -> bool:
     """True when a reply offers appointment times no tool returned.
 
     gpt-oss sometimes says it is checking availability and then invents slots
@@ -103,7 +103,9 @@ def _unsupported_times(text: str, offered: list[dict], booking: dict | None) -> 
     if _ISO_DATE_RE.search(text):
         return True
     from datetime import datetime
-    allowed = set(_CLINIC_INFO_TIMES)
+    # Echoing a time the caller asked for ("no slot at 9:30 yesterday") is not
+    # an offer; only times nobody supplied are blocked.
+    allowed = set(_CLINIC_INFO_TIMES) | _spoken_times(caller_text)
     for start in [s["start"] for s in offered] + ([booking["start"]] if booking and booking.get("start") else []):
         dt = datetime.fromisoformat(start)
         allowed.add((dt.hour % 12 or 12, dt.minute))
@@ -263,7 +265,8 @@ class Receptionist(Agent):
         """The reply as it may be spoken: cleaned, and never offering times a
         tool did not return."""
         cleaned = _clean_reply(text)
-        if _unsupported_times(cleaned, self.state.offered_slots, self.state.booking):
+        if _unsupported_times(cleaned, self.state.offered_slots, self.state.booking,
+                              self._recent_user_text()):
             return SLOT_GUARD_REPLY
         return cleaned
 
