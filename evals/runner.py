@@ -157,13 +157,17 @@ class FaultClient(ServerClient):
         return result
 
 
-async def _post_with_retry(client: httpx.AsyncClient, body: dict, key: str, attempts: int = ATTEMPTS) -> httpx.Response:
+async def _post_with_retry(client: httpx.AsyncClient, body: dict, key: str, attempts: int = ATTEMPTS,
+                           on_retry=None) -> httpx.Response:
     for attempt in range(attempts):
         response = await client.post("/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body)
         if response.status_code not in RETRYABLE_STATUS or attempt == attempts - 1:
             response.raise_for_status()
             return response
-        await asyncio.sleep(retry_delay(response.headers, attempt))
+        delay = retry_delay(response.headers, attempt)
+        if on_retry:
+            on_retry(response.status_code, delay)
+        await asyncio.sleep(delay)
     raise AssertionError("unreachable")
 
 
@@ -348,7 +352,9 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                     budget.check(AGENT_RESERVE_USD, role="agent")
                     if agent_config.get("reasoning_effort"):
                         body["reasoning_effort"] = agent_config["reasoning_effort"]
-                    response = await _post_with_retry(model_client, body, key)
+                    response = await _post_with_retry(
+                        model_client, body, key,
+                        on_retry=lambda status, delay: emit("provider_retry", status=status, wait_seconds=delay))
                     payload = response.json()
                     if payload.get("usage"):
                         result.setdefault("usage", []).append(payload["usage"])
@@ -433,7 +439,51 @@ def _write(path: Path, value) -> None:
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False, default=str))
 
 
+def judge_and_score(runs: list[dict], by_id: dict, args, budget: Budget) -> list[dict]:
+    if args.judge_mode != "none":
+        from evals.judge import judge_runs
+        judgeable = [(run, by_id[run["scenario_id"]]) for run in runs
+                     if run["mode"] == "live" and run["status"] == "completed"]
+        try:
+            judgments = judge_runs(judgeable, budget=budget, model=args.judge_model,
+                                   batch=args.judge_mode == "batch")
+        except BudgetExceeded as exc:
+            judgments = {run["run_id"]: {"errors": [f"judge_budget_stopped:{exc}"], "criteria": {}} for run, _ in judgeable}
+        for run in runs:
+            if run["run_id"] in judgments:
+                run["semantic_judgment"] = judgments[run["run_id"]]
+                _write(args.output / f"{run['run_id']}.json", run)
+    from evals.scoring import score_run
+    return [score_run(run, by_id[run["scenario_id"]]) for run in runs]
+
+
+async def rejudge(args) -> dict:
+    """Judge and score existing transcripts again without re-running the agent.
+
+    For when judging failed for infrastructure reasons (budget reserve, outage).
+    Agent transcripts, manifests and database state are reused unchanged.
+    """
+    load_secrets()
+    source = json.loads((args.rejudge / "summary.json").read_text())
+    runs = source["runs"]
+    for run in runs:
+        run.pop("semantic_judgment", None)
+    by_id = {s["id"]: s for s in load_scenarios("all")}
+    budget = Budget(args.budget_usd)
+    args.output.mkdir(parents=True, exist_ok=True)
+    for run in runs:
+        _write(args.output / f"{run['run_id']}.json", run)
+    scorecards = judge_and_score(runs, by_id, args, budget)
+    agent_cost = (source.get("budget") or {}).get("by_role", {}).get("agent", 0.0)
+    summary = {"schema_version": 1, "budget": {**budget.summary(), "agent_spent_in_source_usd": agent_cost},
+               "rejudged_from": str(args.rejudge), "runs": runs, "scorecards": scorecards}
+    _write(args.output / "summary.json", summary)
+    return summary
+
+
 async def run_suite(args) -> dict:
+    if args.rejudge:
+        return await rejudge(args)
     load_secrets()
     config = agent_config(args)
     scenarios = load_scenarios(args.suite, args.scenario)
@@ -455,20 +505,7 @@ async def run_suite(args) -> dict:
             _write(args.output / f"{run['run_id']}.json", run)
             print(f"{run['run_id']}: {run['status']} {run.get('termination', '')} spent=${budget.spent:.4f}", flush=True)
     by_id = {s["id"]: s for s in scenarios}
-    if args.mode == "live" and args.judge_mode != "none":
-        from evals.judge import judge_runs
-        judgeable = [(run, by_id[run["scenario_id"]]) for run in runs if run["status"] == "completed"]
-        try:
-            judgments = judge_runs(judgeable, budget=budget, model=args.judge_model,
-                                   batch=args.judge_mode == "batch")
-        except BudgetExceeded as exc:
-            judgments = {run["run_id"]: {"errors": [f"judge_budget_stopped:{exc}"], "criteria": {}} for run, _ in judgeable}
-        for run in runs:
-            if run["run_id"] in judgments:
-                run["semantic_judgment"] = judgments[run["run_id"]]
-                _write(args.output / f"{run['run_id']}.json", run)
-    from evals.scoring import score_run
-    scorecards = [score_run(run, by_id[run["scenario_id"]]) for run in runs]
+    scorecards = judge_and_score(runs, by_id, args, budget)
     summary = {"schema_version": 1, "budget": budget.summary(), "runs": runs, "scorecards": scorecards}
     _write(args.output / "summary.json", summary)
     return summary
@@ -489,6 +526,7 @@ def main():
     parser.add_argument("--agent-host", help="OpenRouter host to pin, e.g. Cerebras")
     parser.add_argument("--judge-model", default="claude-sonnet-5-5")
     parser.add_argument("--judge-mode", choices=("batch", "sync", "none"), default="batch")
+    parser.add_argument("--rejudge", type=Path, help="Re-judge and re-score an existing run directory into --output")
     parser.add_argument("--budget-usd", type=float, default=1.5, help="Hard spend cap for this command")
     args = parser.parse_args()
     if args.repeat < 1 or min(args.max_turns, args.max_tool_calls, args.max_model_requests) < 1:

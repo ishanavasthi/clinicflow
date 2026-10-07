@@ -162,7 +162,9 @@ def _error(code: str) -> dict:
 
 
 # Reserve per judged trial before submitting; actual cost is charged afterwards.
-RESERVE_PER_TRIAL = 0.03
+# Measured: about $0.010 per trial synchronously, half that in a batch. The
+# reserve is twice the measured cost.
+RESERVE_PER_TRIAL = {True: 0.01, False: 0.02}
 
 
 def judge_runs(items: list[tuple[dict, dict]], *, budget: Budget, model: str = JUDGE_MODEL,
@@ -174,7 +176,7 @@ def judge_runs(items: list[tuple[dict, dict]], *, budget: Budget, model: str = J
     """
     if not items:
         return {}
-    budget.check(RESERVE_PER_TRIAL * len(items), role="judge")
+    budget.check(RESERVE_PER_TRIAL[batch] * len(items), role="judge")
     client = client or anthropic.Anthropic()
     results: dict[str, dict] = {}
     if not batch:
