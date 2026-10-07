@@ -44,6 +44,7 @@ is a guarantee.
 | `update_intake(field, value)` | Saves name, age, phone or symptom | Phone digits must appear in the caller's recent speech; values are validated and kept in memory only after they persist; refused during an emergency |
 | `check_availability(department, date?, not_before?, not_after?)` | Returns up to three open future slots | Refused until intake is complete; clears any earlier offer first; time constraints are applied by the database, not the model |
 | `book_appointment(option, reason)` | Books one of the offered numbered options | The caller's latest turn must name exactly that option; idempotent request ID; a lost response is reconciled from the receipt instead of rebooking |
+| (every reply) | What the caller hears | Tool-call JSON written as text is stripped; appointment times no tool returned are never spoken |
 | `route_to_department(department, reason)` | Records routing on the dashboard | Emergency routing locks out intake, search and booking for the rest of the call |
 | `answer_faq(topic)` | Logs an answered clinic question | Answers come only from the clinic info in the prompt |
 
@@ -158,6 +159,10 @@ Known blind spots:
   latency are outside a text evaluation.
 - **It is not a clinician.** It checks the narrow emergency policy above, not
   clinical safety in general.
+- **It misreads ambiguous phrasing.** "Would you prefer to call back later?"
+  (the caller phoning again, which is supported) was scored once as offering
+  a callback service and accepted in other trials. Candidate 008 removed the
+  wording at its source rather than tuning the judge.
 - **It is one model with one prompt.** Its verdicts are not independent of each
   other, and they vary between runs. Baseline and candidate use the identical
   judge configuration, and the judge never sees which version it is grading.
@@ -186,7 +191,31 @@ the baseline and once for the final candidate.
 
 ## Results
 
-_Filled in from `docs/evidence/` once the runs complete._
+The exact figures, per version and per scenario, are in the
+[README](../README.md#assignment-results). In short, on the 16 development
+scenarios × 5 trials: the baseline passed 14/80 trials with a mean score of
+82.9 and 29 trials with a critical failure; the final version passes 60/80,
+mean 97.9, with no critical failures. On the 4 held-out scenarios, never shown
+to the improver: 5/20 at 93.0 rose to 16/20 at 98.2, critical failures 3 to 0.
+No version passed the strict per-scenario regression gate; the README lists
+what held the final version back.
+
+### Generated versus engineered changes
+
+| Version | Change | Source |
+| --- | --- | --- |
+| 001 | booking_error and no_slots stop offering callbacks; recovery path after conflict | Opus proposal |
+| 002 | emergency_response directs to emergency services; availability_error stops offering callbacks | Opus proposal |
+| 003 | atomic slot claim, idempotent request ID and receipt reconciliation; consent, emergency and stale-offer locks | engineered |
+| 004 | tool replies say to record details already given; failed saves say they are not recorded; leaked tool calls stripped from speech | engineered |
+| 005 | replies never offer times no tool returned | engineered |
+| 006 | search unfiltered unless the caller gave a time; never end a turn promising to check | Opus proposal |
+| 007 | past-date refusals; never offer connection, transfer or waitlist (plus a slot-guard false-positive fix) | Opus proposal + engineered |
+| 008 | no_slots stops using "call back" wording the judge read as a callback offer | Opus proposal |
+
+Each Opus proposal is in `docs/evidence/iteration-*/proposal.json`, and each
+applied policy has a provenance file next to it in `agent/policies/` linking it
+to the proposal hash and the source run IDs.
 
 ## Reproducing
 
