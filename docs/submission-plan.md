@@ -1,6 +1,6 @@
 # ClinicFlow submission plan
 
-Status: proposed implementation plan; no implementation or delegated tasks started.
+Status: implemented. This was the plan written before the work; the results and the deviations from it (five trials, simulator v2, severity-first selection) are in the README.
 
 ## Outcome and scope
 

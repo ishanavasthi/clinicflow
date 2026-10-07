@@ -12,6 +12,22 @@ run artifacts under [`docs/evidence/`](docs/evidence/). The full write-up
 [`docs/assignment.md`](docs/assignment.md); the one-page design note is in
 [`docs/design-note.md`](docs/design-note.md).
 
+**Where each part of the brief is answered.**
+
+| The brief asks for | Where |
+| --- | --- |
+| Multi-turn agent that uses tools | [Agent design](docs/assignment.md#agent-design); live runs in `docs/evidence/` |
+| Prompt design | [Prompt](docs/assignment.md#prompt) |
+| Guardrails, and where each one lives | [Guardrails table](docs/assignment.md#guardrails-and-where-each-one-lives) |
+| Which tools, and how they are scoped | [Tools and how they are scoped](docs/assignment.md#tools-and-how-they-are-scoped) |
+| Conversation state | [Conversation state](docs/assignment.md#conversation-state) |
+| Scenarios, including the hard cases | [Scenarios](docs/assignment.md#scenarios) and `evals/scenarios/` |
+| What the rubric measures | [Rubric](docs/assignment.md#rubric) and [`docs/rubric.md`](docs/rubric.md) |
+| Where a transcript-only judge is blind | [What the judge can and cannot see](docs/assignment.md#what-the-judge-can-and-cannot-see) |
+| How improvements are generated and applied | [Improvement loop](docs/assignment.md#improvement-loop) and the tables below |
+| Before and after, without regressions | The tables below, including the regressions that remain |
+| Assumptions written down | [Assumptions](docs/assignment.md#assumptions) |
+
 **Setup.** The agent under test is the model the voice agent ships with,
 `gpt-oss-120b` at low reasoning effort, served through OpenRouter and pinned to
 one host (Cerebras, fp16, fallbacks off). Each trial is a real multi-turn
@@ -189,10 +205,16 @@ events are real server state, not mockups.
 - Live, streaming dashboard: transcript, patient intake, availability and booking,
   a department-routing switchboard, and a conversation timeline, all driven by the
   agent's own tool calls (no scripted animation).
-- Emergency override: red-flag symptoms skip intake and route to Emergency at once.
+- Emergency override: red-flag symptoms skip intake, route to Emergency, lock out
+  further scheduling, and direct the caller to emergency services. The agent never
+  claims a transfer or callback, because neither exists.
 - Deterministic guardrails on top of the LLM: it records only what the caller
   actually says, asks one thing at a time, will not offer appointment times before
-  intake is complete, and never claims a booking a tool did not confirm.
+  intake is complete, never claims a booking a tool did not confirm, never speaks
+  appointment times no tool returned, and never reads tool-call text aloud.
+- Booking is atomic and idempotent: a slot is claimed in one database statement,
+  and a booking whose response was lost is reconciled from its receipt instead of
+  booked twice.
 - Call controls: mute/pause (the agent waits), end, and a post-call view with
   recording playback and an editable patient record.
 - Full persistence: every call is saved to SQLite and archived as JSON (transcript
@@ -342,7 +364,16 @@ make web        # dashboard on http://localhost:3000
 ```
 
 Open http://localhost:3000, click **Start call**, allow the mic, and talk to Riya.
-See `DEMO.md` for a copy-and-speak demo script.
+A short demo script to speak:
+
+1. "Hi, I need an appointment for a persistent cough. I'm Asha Nair, 34, my
+   number is 98765 01001." Riya records all four details and offers real
+   General Medicine times.
+2. "The first one, please." It books that slot and confirms doctor and time.
+3. Start a new call and say "I have severe chest pain and can't breathe." Riya
+   stops scheduling and tells you to call emergency services; it does not
+   claim to transfer you.
+4. "What dose of antibiotics should I take?" It declines medical advice.
 
 Other commands: `make console` (talk to the agent via the local mic, no browser),
 `make verify` (deterministic booking + provider smoke tests), `make latency`

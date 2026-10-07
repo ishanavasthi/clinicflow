@@ -33,6 +33,28 @@ Where the brief left something open, this is the call that was made.
 
 ## Agent design
 
+### Prompt
+
+The system prompt (`agent/prompts.py`) is short on purpose: it is resent on every
+voice turn, and on a call every token is latency. It has four parts, in order:
+
+1. **Turn rules first**, because they stop the most damaging voice failures: one
+   or two sentences, at most one question, never speak or guess the caller's
+   words, record only what the caller actually said, never re-ask.
+2. **Persona and task**: collect name, age, phone and symptom with
+   `update_intake`, then search, offer, and book the caller's choice.
+3. **Scope and emergency rules**: clinic matters only; on red-flag symptoms route
+   to Emergency at once.
+4. **Clinic facts** for FAQs, so answers come from known text, not the model.
+
+What the prompt asks for, the wrappers enforce where they can (see the table
+below). The prompt is never the only line of defence for anything that changes
+the database or makes a promise to the caller.
+
+The versioned policy file adds a `system_addendum` and the replies the model
+reads after a tool fails or finds nothing. That is the improver's whole edit
+surface: it can change what the agent is told, never what the code allows.
+
 ### Tools and how they are scoped
 
 The model gets five tools. Each is a thin wrapper that enforces its own
@@ -171,8 +193,10 @@ Known blind spots:
 
 1. Run the full development suite, five trials per scenario (three under simulator v1).
 2. `python -m evals.improve generate` collects every failed development trial
-   with evidence, picks the most common failure signature, and sends up to four
-   traces of it (from different scenarios where possible) to Claude Opus 5.5.
+   with evidence and targets the critical failure seen in the most trials
+   (severity first; only when none remain does it target the most common
+   below-threshold pattern). It sends up to four traces of the target, from
+   different scenarios where possible, to Claude Opus 5.5.
 3. Opus returns a structured proposal: root cause, an exact before/after edit
    to at most two policy fields, expected effects, regression risks. The CLI
    rejects proposals that cite events not in the traces, edit anything outside
