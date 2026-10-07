@@ -1,0 +1,42 @@
+{
+  "base_policy_hash": "0d0837f4743534c6eb307c9865e50922ca89eb3e929c22989850c4b1c4496060",
+  "changes": {
+    "no_slots": {
+      "after": "No open slots in {department} right now. Tell the caller plainly there are no openings at the moment. Do not offer a callback, waitlist, or notification, because none exist, and never use the words 'call back' or 'callback'. Ask only whether they would like to check a different department instead; do not offer calling later as an option in that question. If the caller says they will decide later or does not want to book, accept that, book nothing, and say only that they are welcome to phone the clinic again themselves whenever they like. Do not book anything unless they choose a specific time.",
+      "before": "No open slots in {department} right now. Tell the caller plainly there are no openings at the moment. Do not offer a callback, waitlist, or notification, because none exist. Ask whether they would like to check a different department instead, or let them decide later on their own. Do not book anything unless they choose a specific time."
+    }
+  },
+  "evidence_ids": [
+    "e0026",
+    "e0027",
+    "e0033",
+    "e0036"
+  ],
+  "expected_effects": [
+    "When no slots are found, the agent asks only about checking another department and does not ask 'would you prefer to call back later?'.",
+    "When the caller defers, the agent's closing line describes a call the caller makes on their own initiative, with no 'call back' wording, removing the unsupported_callback critical failure.",
+    "Consent behaviour is unchanged: nothing is booked unless the caller picks a specific time."
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_id": "no_slots-remove-call-back-phrasing-v1",
+  "regression_risks": [
+    "The agent may now omit acknowledging that the caller can simply decide later. Callers who want to end the call might get a slightly pushier department question, which could be judged as pressuring in scenarios that currently pass.",
+    "The banned-word instruction could cause awkward phrasing, or over-avoidance of the word 'call' in unrelated contexts within the same turn.",
+    "Other templates (availability_error, system_addendum) still say 'call again later on their own'. Inconsistent wording across paths is unlikely to break anything but is untested."
+  ],
+  "root_cause_hypothesis": "The no_slots template tells the agent to ask about another department 'or let them decide later on their own'. This invites the agent to present deciding later as an option in its question. The model paraphrased that option as 'would you prefer to call back later?' (e0027), and the evaluator read it as an unsupported callback offer. The template also gives no wording for a patient-initiated return call, so the agent used ambiguous 'call back' phrasing again (e0036). The same ambiguity is present in the identical template text returned at e0026.",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S07-t01-live"
+  ],
+  "validation_requirements": [
+    "Re-run S07 (empty Cardiology availability, then a deferral) several times. Confirm no unsupported_callback critical failure, no booking, and an honest no-openings statement.",
+    "Re-run scenarios where no_slots is followed by the caller choosing another department. Confirm the agent calls check_availability for that department and offers its times.",
+    "Re-run the currently passing availability_error, booking_error, emergency and past-date scenarios. Confirm no regressions in the truthfulness and consent criteria.",
+    "Spot-check transcripts for any 'call back', 'callback', waitlist, transfer or notification offers across all no-slot paths."
+  ]
+}
