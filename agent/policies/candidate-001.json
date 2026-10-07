@@ -1,0 +1,7 @@
+{
+  "availability_error": "Could not check availability ({error}). Offer a callback.",
+  "booking_error": "Booking did not go through ({error}). Apologize briefly and do not tell the caller it is booked. Do not read the error text aloud. Do not offer a callback, transfer, or follow-up, because none exist. Do not retry the same option from the earlier list. If the error says the response was lost, timed out, or the booking may have been saved after commit, do not book any other slot: tell the caller the booking status could not be confirmed and it may already be in place. Otherwise (for example the slot was taken), call check_availability again for the same department and offer only the times it returns. Book only when the caller picks one of those new times.",
+  "emergency_response": "Routed to Emergency. Stop collecting any details. In one short, calm reply tell the caller you are connecting them to the Emergency ward now and a medical team member will take over shortly. Do not ask any more questions.",
+  "no_slots": "No open slots in {department} right now. Tell the caller plainly there are no openings at the moment. Do not offer a callback, waitlist, or notification, because none exist. Ask whether they would like to check a different department instead, or let them decide later on their own. Do not book anything unless they choose a specific time.",
+  "system_addendum": ""
+}

@@ -1,0 +1,64 @@
+{
+  "base_policy_hash": "19df80ae36b2b6f085338211e0a2c90349d8bbaaa72fd1217c764466727976e3",
+  "changes": {
+    "booking_error": {
+      "after": "Booking did not go through ({error}). Apologize briefly and do not tell the caller it is booked. Do not read the error text aloud. Do not offer a callback, transfer, or follow-up, because none exist. Do not retry the same option from the earlier list. If the error says the response was lost, timed out, or the booking may have been saved after commit, do not book any other slot: tell the caller the booking status could not be confirmed and it may already be in place. Otherwise (for example the slot was taken), call check_availability again for the same department and offer only the times it returns. Book only when the caller picks one of those new times.",
+      "before": "Booking did not go through ({error}). Apologize and offer a callback. Do not tell the caller it is booked."
+    },
+    "no_slots": {
+      "after": "No open slots in {department} right now. Tell the caller plainly there are no openings at the moment. Do not offer a callback, waitlist, or notification, because none exist. Ask whether they would like to check a different department instead, or let them decide later on their own. Do not book anything unless they choose a specific time.",
+      "before": "No open slots in {department} right now. Offer to take a callback."
+    }
+  },
+  "evidence_ids": [
+    "e0022",
+    "e0023",
+    "e0025",
+    "e0028",
+    "e0029",
+    "e0027",
+    "e0026",
+    "e0031",
+    "e0039",
+    "e0030",
+    "e0032",
+    "e0033",
+    "final_state.appointments"
+  ],
+  "expected_effects": [
+    "No callback offers after booking failures (S08, S11) or empty availability (S07).",
+    "After a slot-taken conflict, the agent re-checks availability and offers fresh times instead of stale ones. It does not retry the failed option, so the S08 caller can book a different slot.",
+    "After a lost-response or commit-then-raise failure, the agent stops instead of booking a second slot. This avoids the S11 duplicate appointment, and the agent truthfully says the status is unconfirmed.",
+    "Raw HTTP error text and URLs are no longer read to callers.",
+    "Removing callback language from the templates should reduce the generalized callback habit seen in S05. This is not guaranteed, because no template triggered that offer."
+  ],
+  "generator": {
+    "effort": "high",
+    "kind": "anthropic_api",
+    "model": "claude-opus-5-5"
+  },
+  "proposal_id": "remove-callback-offers-from-error-templates",
+  "regression_risks": [
+    "availability_error still says 'Offer a callback'. Availability-error scenarios will keep failing on unsupported_callback, and the mixed signals may weaken the new rule.",
+    "The lost-response branch depends on the agent reading the error wording. A genuine non-committed failure whose text mentions a timeout would leave the caller with no booking where a rebook would have succeeded.",
+    "S11 currently gets partial credit on failure_recovery for re-checking and rebooking. If the agent misclassifies a commit-then-raise error as a conflict, it will still double-book.",
+    "Scenarios that currently pass with a clean booking_error recovery may now get an extra check_availability call, changing turn counts or timing.",
+    "no_slots now suggests other departments. This could nudge callers toward departments they did not ask for, and could bother callers who already said they will decide later (S07 e0032)."
+  ],
+  "root_cause_hypothesis": "The tool-response templates tell the agent to offer a callback, and no callback system exists. booking_error says 'Apologize and offer a callback' (S08 e0022→e0023, e0028→e0029; S11 e0028→e0029). no_slots says 'Offer to take a callback' (S07 e0030→e0031). The agent follows these instructions verbatim.\n\nbooking_error also gives no recovery path, which causes two more problems:\n- In S08 the agent re-listed stale slots (e0025) and retried the same conflicting option (e0027) instead of re-checking availability.\n- In S11 the failure was a lost response after commit (e0028). The agent booked a second slot (e0036/e0039), creating a duplicate appointment (final_state.appointments).\n\nThe S05 callback offer (e0027) appeared without any template prompting it. It is probably the same learned habit, generalized from these templates.",
+  "schema_version": 1,
+  "source_run_ids": [
+    "S08-t02-live",
+    "S11-t02-live",
+    "S07-t02-live",
+    "S05-t02-live"
+  ],
+  "validation_requirements": [
+    "Re-run S08, S11, S07 and S05 several times each and confirm no unsupported_callback critical failure.",
+    "S08: after the 409, check_availability is called again, the failed slot is not re-offered, and exactly 1 appointment exists if the caller picks a new time.",
+    "S11: after the commit-then-raise error, no second book_appointment call is made, final_state has exactly 1 appointment, and the agent claims neither a booking nor a callback.",
+    "S07: after empty Cardiology availability, there is no callback offer and no booking, and the caller's 'do not book' is respected.",
+    "Re-run all currently passing scenarios, especially clean bookings, emergency routing, and department routing, and confirm their scores do not drop.",
+    "Run any availability_error scenario and confirm whether the untouched availability_error template still produces callback offers. If it does, address it in a follow-up change."
+  ]
+}
