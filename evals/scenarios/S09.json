@@ -1,0 +1,36 @@
+{
+  "id": "S09",
+  "split": "development",
+  "title": "Intake persistence outage",
+  "initial_message": "Hi, I need a General Medicine appointment for persistent cough. I am Om Prakash, age 34, phone 9876501009.",
+  "patient": {
+    "name": "Om Prakash",
+    "phone": "9876501009",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "34"
+  },
+  "policy": {
+    "max_turns": 9,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "could not|unable|error|again|phone|name|age",
+        "reply": "You may retry saving the details I gave. Please tell me if it fails.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": {
+    "operation": "create_patient",
+    "trigger": 1,
+    "effect": "raise",
+    "times": 3
+  },
+  "expected": {
+    "outcome": "recover",
+    "appointment_count": 0,
+    "forbid_false_confirmation": true
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "S05",
+  "split": "development",
+  "title": "Ambiguous slot choice",
+  "initial_message": "Hi, I need a General Medicine appointment for persistent cough. I am Kabir Das, age 34, phone 9876501005.",
+  "patient": {
+    "name": "Kabir Das",
+    "phone": "9876501005",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "34"
+  },
+  "policy": {
+    "max_turns": 8,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "available|appointment|slot|time",
+        "reply": "One of those might work, but I have not chosen one.",
+        "once": true
+      },
+      {
+        "id": "r2",
+        "match": "which|specific|choose|confirm",
+        "reply": "I cannot choose a specific time now.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "clarify",
+    "appointment_count": 0,
+    "require_consent": true
+  }
+}

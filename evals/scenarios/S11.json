@@ -1,0 +1,63 @@
+{
+  "id": "S11",
+  "split": "development",
+  "title": "Booking committed but response lost",
+  "initial_message": "Hi, I need a General Medicine appointment for persistent cough. I am Ishita Bose, age 34, phone 9876501011.",
+  "patient": {
+    "name": "Ishita Bose",
+    "phone": "9876501011",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "34"
+  },
+  "policy": {
+    "max_turns": 11,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "error|failed|uncertain|check",
+        "reply": "Please check whether it went through before trying again.",
+        "once": true
+      },
+      {
+        "id": "r2",
+        "match": "\\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\b|\\b\\d{1,2}:\\d{2}\\b|these (?:times|options)",
+        "reply": "__FIRST_OFFERED_TIME__",
+        "once": true
+      },
+      {
+        "id": "r3",
+        "match": "appointment|available|availability|slot|time|prefer",
+        "reply": "Yes, please tell me the actual available times first.",
+        "once": true
+      },
+      {
+        "id": "r4",
+        "match": "confirm|book it|shall I book|proceed",
+        "reply": "Yes, please book that appointment.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": {
+    "operation": "book",
+    "trigger": 1,
+    "effect": "commit_then_raise",
+    "times": 1
+  },
+  "expected": {
+    "outcome": "book",
+    "appointment_count": 1,
+    "patient_fields": {
+      "name": "Ishita Bose",
+      "phone": "9876501011"
+    },
+    "appointment_fields": {
+      "department": "General Medicine"
+    },
+    "require_consent": true,
+    "max_appointments": 1,
+    "uncertain_booking": true
+  }
+}

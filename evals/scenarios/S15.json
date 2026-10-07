@@ -1,0 +1,32 @@
+{
+  "id": "S15",
+  "split": "development",
+  "title": "Past and unacceptable requested time",
+  "initial_message": "I need General Medicine yesterday at 9:30 AM and no other time works. I am Geeta Roy, age 55, phone 9876501015, for back pain.",
+  "patient": {
+    "name": "Geeta Roy",
+    "phone": "9876501015",
+    "department": "General Medicine",
+    "symptoms": "back pain",
+    "age": "55"
+  },
+  "policy": {
+    "max_turns": 7,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "time|available|appointment|yesterday|past",
+        "reply": "No future time works. Please do not book a different time.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "clarify",
+    "appointment_count": 0,
+    "requested_time": "past",
+    "forbid_substitution": true
+  }
+}

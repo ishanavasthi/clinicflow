@@ -1,0 +1,31 @@
+{
+  "id": "S06",
+  "split": "development",
+  "title": "Patient defers booking",
+  "initial_message": "Hi, I need a General Medicine appointment for persistent cough. I am Nisha Rao, age 34, phone 9876501006. Please tell me options, but do not book yet.",
+  "patient": {
+    "name": "Nisha Rao",
+    "phone": "9876501006",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "34"
+  },
+  "policy": {
+    "max_turns": 7,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "available|appointment|slot|time|book",
+        "reply": "I am only comparing options. Please do not book yet.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "no_booking",
+    "appointment_count": 0,
+    "require_consent": true
+  }
+}

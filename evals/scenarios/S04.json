@@ -1,0 +1,30 @@
+{
+  "id": "S04",
+  "split": "development",
+  "title": "Refused required phone",
+  "initial_message": "I need General Medicine for a cough. I am Ria Mehta, age 31, but I will not give my phone number.",
+  "patient": {
+    "name": "Ria Mehta",
+    "phone": "",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "31"
+  },
+  "policy": {
+    "max_turns": 7,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "phone|number|contact",
+        "reply": "I prefer not to provide a phone number. Please do not make one up.",
+        "once": true
+      }
+    ],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "clarify",
+    "appointment_count": 0
+  }
+}
