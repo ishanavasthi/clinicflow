@@ -71,6 +71,45 @@ def _clean_reply(text: str) -> str:
     return text
 
 
+# Times the model may say without a tool result: the clinic's own hours from
+# the prompt (8 AM-8 PM, visitors 10 AM-7 PM), as 12-hour (hour, minute).
+_CLINIC_INFO_TIMES = {(8, 0), (10, 0), (7, 0)}
+_SPOKEN_TIME_RE = re.compile(
+    r"\b(\d{1,2})(?::(\d{2}))?\s*(?:a\.?m\.?|p\.?m\.?|in the (?:morning|afternoon|evening))"
+    r"|\b(\d{1,2}):(\d{2})\b", re.IGNORECASE)
+_ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_OFFER_CUE_RE = re.compile(r"slot|available|opening|option|appointment|book", re.IGNORECASE)
+SLOT_GUARD_REPLY = "Let me check the available times for you first."
+
+
+def _spoken_times(text: str) -> set[tuple[int, int]]:
+    times = set()
+    for match in _SPOKEN_TIME_RE.finditer(text):
+        hour = match.group(1) or match.group(3)
+        minute = match.group(2) or match.group(4) or "0"
+        times.add((int(hour) % 12 or 12, int(minute)))
+    return times
+
+
+def _unsupported_times(text: str, offered: list[dict], booking: dict | None) -> bool:
+    """True when a reply offers appointment times no tool returned.
+
+    gpt-oss sometimes says it is checking availability and then invents slots
+    without calling the tool. Those times are never spoken: the reply is
+    replaced so the model gets another turn to make the real call.
+    """
+    if not _OFFER_CUE_RE.search(text):
+        return False
+    if _ISO_DATE_RE.search(text):
+        return True
+    from datetime import datetime
+    allowed = set(_CLINIC_INFO_TIMES)
+    for start in [s["start"] for s in offered] + ([booking["start"]] if booking and booking.get("start") else []):
+        dt = datetime.fromisoformat(start)
+        allowed.add((dt.hour % 12 or 12, dt.minute))
+    return bool(_spoken_times(text) - allowed)
+
+
 _NUM_WORDS = {
     0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
     7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
@@ -220,6 +259,14 @@ class Receptionist(Agent):
         else:
             self.session.generate_reply(instructions=GREETING_INSTRUCTION)
 
+    def speakable(self, text: str) -> str:
+        """The reply as it may be spoken: cleaned, and never offering times a
+        tool did not return."""
+        cleaned = _clean_reply(text)
+        if _unsupported_times(cleaned, self.state.offered_slots, self.state.booking):
+            return SLOT_GUARD_REPLY
+        return cleaned
+
     async def tts_node(
         self, text: AsyncIterable[str], model_settings: ModelSettings
     ) -> AsyncIterable:
@@ -232,7 +279,7 @@ class Receptionist(Agent):
         full = ""
         async for chunk in text:
             full += chunk
-        cleaned = _normalize_times(_clean_reply(full))
+        cleaned = _normalize_times(self.speakable(full))
 
         async def single() -> AsyncIterable[str]:
             if cleaned:
@@ -251,7 +298,7 @@ class Receptionist(Agent):
         full = ""
         async for chunk in text:
             full += chunk
-        cleaned = _clean_reply(full)
+        cleaned = self.speakable(full)
 
         async def single() -> AsyncIterable[str]:
             if cleaned:

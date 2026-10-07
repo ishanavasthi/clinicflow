@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
-from receptionist import LEAK_FALLBACK, _clean_reply  # noqa: E402
+from receptionist import LEAK_FALLBACK, _clean_reply, _unsupported_times  # noqa: E402
 
 
 class ReplyCleaningTests(unittest.TestCase):
@@ -21,6 +21,24 @@ class ReplyCleaningTests(unittest.TestCase):
 
     def test_ordinary_reply_is_unchanged(self):
         self.assertEqual(_clean_reply("May I have your phone number, please?"), "May I have your phone number, please?")
+
+
+OFFERED = [{"start": "2026-10-08T09:30:00"}, {"start": "2026-10-08T11:00:00"}, {"start": "2026-10-08T14:00:00"}]
+
+
+class SlotGuardTests(unittest.TestCase):
+    def test_invented_slots_without_a_tool_result_are_blocked(self):
+        self.assertTrue(_unsupported_times("Here are three slots: 1) 2024-11-05 at 10:00, 2) 14:30.", [], None))
+        self.assertTrue(_unsupported_times("We have openings at 10 AM and 2:30 PM.", [], None))
+
+    def test_offered_times_may_be_spoken(self):
+        self.assertFalse(_unsupported_times("We have openings at 9:30 AM, 11 AM or 2 PM.", OFFERED, None))
+
+    def test_a_time_not_in_the_offer_is_blocked(self):
+        self.assertTrue(_unsupported_times("We have openings at 9:30 AM or 3:30 PM.", OFFERED, None))
+
+    def test_clinic_hours_are_not_appointment_offers(self):
+        self.assertFalse(_unsupported_times("We are open from 8 AM to 8 PM, Monday to Saturday.", [], None))
 
 
 if __name__ == "__main__":

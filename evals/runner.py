@@ -396,7 +396,10 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                         continue
                     from receptionist import _clean_reply
                     raw = message.get("content") or ""
-                    spoken = _clean_reply(raw)
+                    speakable = getattr(agent, "speakable", None)
+                    spoken = speakable(raw) if speakable else _clean_reply(raw)
+                    if speakable and spoken != _clean_reply(raw):
+                        emit("reply_guarded", text=raw)
                     if any(name in raw for name in ("update_intake", "check_availability", "book_appointment",
                                                     "answer_faq", "route_to_department", "functions.")):
                         # The model wrote a tool call as speech. Keep the raw text in
@@ -475,7 +478,8 @@ def judge_and_score(runs: list[dict], by_id: dict, args, budget: Budget) -> list
     if args.judge_mode != "none":
         from evals.judge import judge_runs
         judgeable = [(run, by_id[run["scenario_id"]]) for run in runs
-                     if run["mode"] == "live" and run["status"] == "completed"]
+                     if run["mode"] == "live" and run["status"] == "completed"
+                     and not (run.get("semantic_judgment") or {}).get("criteria")]
         try:
             judgments = judge_runs(judgeable, budget=budget, model=args.judge_model,
                                    batch=args.judge_mode == "batch")
@@ -529,6 +533,15 @@ async def run_suite(args) -> dict:
     runs = []
     for scenario in scenarios:
         for trial in range(1, args.repeat + 1):
+            previous = args.output / f"{scenario['id']}-t{trial:02d}-{args.mode}.json"
+            if args.resume and previous.exists():
+                kept = json.loads(previous.read_text())
+                if kept.get("status") == "completed":
+                    # Completed trials are kept; only infrastructure failures
+                    # (DNS, exhausted retries) and missing trials run again.
+                    runs.append(kept)
+                    print(f"{kept['run_id']}: kept from previous run", flush=True)
+                    continue
             run = await run_scenario(scenario, config, trial=trial, mode=args.mode, suite_hash=suite_hash,
                                      max_turns=args.max_turns, max_tool_calls=args.max_tool_calls,
                                      max_model_requests=args.max_model_requests, work_dir=args.output,
@@ -558,6 +571,8 @@ def main():
     parser.add_argument("--agent-host", help="OpenRouter host to pin, e.g. Cerebras")
     parser.add_argument("--judge-model", default="claude-sonnet-5-5")
     parser.add_argument("--judge-mode", choices=("batch", "sync", "none"), default="batch")
+    parser.add_argument("--resume", action="store_true",
+                        help="Keep completed trials already in --output; run only missing or failed ones")
     parser.add_argument("--rejudge", type=Path, help="Re-judge and re-score an existing run directory into --output")
     parser.add_argument("--budget-usd", type=float, default=1.5, help="Hard spend cap for this command")
     args = parser.parse_args()
