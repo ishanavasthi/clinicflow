@@ -73,13 +73,15 @@ def _client():
     )
 
 
-def _effort_kwargs() -> dict:
-    """Only reasoning models accept reasoning_effort; sending it elsewhere 400s."""
-    return (
-        {"reasoning_effort": LLM_CONFIG.reasoning_effort}
-        if LLM_CONFIG.reasoning_effort
-        else {}
-    )
+def _request_kwargs() -> dict:
+    """Only reasoning models accept reasoning_effort; sending it elsewhere 400s.
+    The OpenRouter host pin goes along so the check hits the host a call would."""
+    kwargs: dict = {}
+    if LLM_CONFIG.reasoning_effort:
+        kwargs["reasoning_effort"] = LLM_CONFIG.reasoning_effort
+    if LLM_CONFIG.extra_body():
+        kwargs["extra_body"] = LLM_CONFIG.extra_body()
+    return kwargs
 
 
 def check_llm_completion() -> None:
@@ -90,12 +92,12 @@ def check_llm_completion() -> None:
             messages=[{"role": "user", "content": "Reply with the single word: ready"}],
             # Reasoning models spend tokens before the answer, so leave room.
             max_completion_tokens=256,
-            **_effort_kwargs(),
+            **_request_kwargs(),
         )
         text = (resp.choices[0].message.content or "").strip()
-        record(LLM_CONFIG.provider, "chat completion", bool(text), repr(text[:40]), (time.time() - t) * 1000)
+        record(LLM_CONFIG.label, "chat completion", bool(text), repr(text[:40]), (time.time() - t) * 1000)
     except Exception as exc:  # noqa: BLE001
-        record(LLM_CONFIG.provider, "chat completion", False, str(exc)[:60], (time.time() - t) * 1000)
+        record(LLM_CONFIG.label, "chat completion", False, str(exc)[:60], (time.time() - t) * 1000)
 
 
 def check_llm_tool_calling() -> None:
@@ -125,18 +127,18 @@ def check_llm_tool_calling() -> None:
             tools=[tool],
             tool_choice="auto",
             max_completion_tokens=200,
-            **_effort_kwargs(),
+            **_request_kwargs(),
         )
         calls = resp.choices[0].message.tool_calls or []
         if calls:
             args = json.loads(calls[0].function.arguments or "{}")
             dept = str(args.get("department", "")).lower()
             ok = "emergency" in dept
-            record(LLM_CONFIG.provider, "tool calling (emergency)", ok, f"{calls[0].function.name}({args.get('department')})", (time.time() - t) * 1000)
+            record(LLM_CONFIG.label, "tool calling (emergency)", ok, f"{calls[0].function.name}({args.get('department')})", (time.time() - t) * 1000)
         else:
-            record(LLM_CONFIG.provider, "tool calling (emergency)", False, "no tool_call returned", (time.time() - t) * 1000)
+            record(LLM_CONFIG.label, "tool calling (emergency)", False, "no tool_call returned", (time.time() - t) * 1000)
     except Exception as exc:  # noqa: BLE001
-        record(LLM_CONFIG.provider, "tool calling (emergency)", False, str(exc)[:60], (time.time() - t) * 1000)
+        record(LLM_CONFIG.label, "tool calling (emergency)", False, str(exc)[:60], (time.time() - t) * 1000)
 
 
 async def synth_rumik(session) -> bytes | None:

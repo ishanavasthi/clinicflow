@@ -307,10 +307,11 @@ flowchart LR
 - **Speech to speech (`VOICE_MODE=realtime`):** one OpenAI `gpt-realtime` model
   replaces STT, LLM, and TTS. Tools, guardrails, persistence, and the dashboard
   are unchanged, because they sit above the model rather than inside it.
-- **Provider flip:** `LLM_PROVIDER=groq|openai` picks who serves the cascaded chat
-  model; `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY` override any part of it.
-  Only the selected provider's key is read, so a Groq key is never sent to
-  OpenAI. See "Choosing a pipeline" below.
+- **Provider flip:** `LLM_PROVIDER=groq|openai|openrouter` picks who serves the
+  cascaded chat model, and for OpenRouter `OPENROUTER_HOST=default|groq|cerebras`
+  picks the host behind it; `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY`
+  override any part of it. Only the selected provider's key is read, so a Groq
+  key is never sent to OpenAI. See "Choosing a pipeline" below.
 - **Backend:** FastAPI + SQLModel + SQLite (seeded EHR). Persistence only, never in
   the audio path.
 - **Dashboard realtime:** LiveKit only: `lk.transcription` text streams plus
@@ -335,7 +336,8 @@ web/       Next.js dashboard (components/, hooks/, stores/, lib/)
 - Node 20+ and npm
 - [uv](https://docs.astral.sh/uv/) (manages Python 3.12 for the two Python packages)
 - API keys: LiveKit Cloud, Rumik, Deepgram, and Groq for the default pipeline.
-  An OpenAI key is needed only for `LLM_PROVIDER=openai` or `VOICE_MODE=realtime`.
+  An OpenAI key is needed only for `LLM_PROVIDER=openai` or `VOICE_MODE=realtime`,
+  and an OpenRouter key only for `LLM_PROVIDER=openrouter`.
 
 ## Setup
 
@@ -381,12 +383,13 @@ Other commands: `make console` (talk to the agent via the local mic, no browser)
 
 ## Choosing a pipeline
 
-Three configurations, all switched in `agent/.env` with no code change, so they
+Four configurations, all switched in `agent/.env` with no code change, so they
 can be compared on the same call script instead of argued about:
 
 | `.env` | What runs | Why you would |
 |---|---|---|
 | `VOICE_MODE=cascaded`, `LLM_PROVIDER=groq` | Deepgram to gpt-oss-120b on Groq to Rumik | Default. Groq has the lowest time-to-first-token, the stage a caller feels most. Its free tier is capped at 8000 tokens/min and a 429 mid-call is audible. |
+| `VOICE_MODE=cascaded`, `LLM_PROVIDER=openrouter` | the same gpt-oss-120b through OpenRouter; `OPENROUTER_HOST=default\|groq\|cerebras` picks the host | The same model without Groq's free-tier cap. `default` lets OpenRouter choose (one test turn took 11.8 s on a slow host); `cerebras` was the fastest to first token in a quick check. A pinned host that fails falls back to another unless `OPENROUTER_FALLBACKS=false`. |
 | `VOICE_MODE=cascaded`, `LLM_PROVIDER=openai` | the same, with `gpt-4.1-mini` | Stronger instruction-following, and no free-tier limit to interrupt a call. Usually slower to first token. |
 | `VOICE_MODE=realtime` | `gpt-realtime`, speech to speech | Nothing between hearing and speaking: no STT hop, no TTS hop, native interruption handling and input noise reduction. Audio tokens cost materially more per minute, and the per-stage breakdown collapses to a single number. |
 
@@ -491,9 +494,12 @@ worker shutdown, so history is complete immediately.
 
 - **The agent goes silent mid-call.** Usually Groq's free-tier rate limit
   (`gpt-oss-120b` is capped at 8000 tokens/minute); check `runs/agent.log` for a
-  `429`. Upgrade the Groq tier, or switch the model with one line in `agent/.env`:
-  set `LLM_MODEL`/`LLM_BASE_URL` to a higher-limit endpoint (for example OpenAI
-  `gpt-4o-mini` with your `OPENAI_API_KEY`).
+  `429`. Upgrade the Groq tier, or move the same model off the free tier with
+  `LLM_PROVIDER=openrouter` and an `OPENROUTER_API_KEY` (optionally
+  `OPENROUTER_HOST=cerebras`). The agent says "Sorry, I had a brief hiccup" only
+  once LiveKit has given up retrying; a 429 it retries successfully costs a
+  pause, not an apology. The log line names the stage (LLM, STT or TTS) that
+  failed.
 - **No greeting / no audio in the browser.** Browsers block autoplay until a
   gesture; the greeting unlocks on the **Start call** click. If a "Tap anywhere to
   enable sound" hint appears, tap once. Make sure you are not muted (the banner
