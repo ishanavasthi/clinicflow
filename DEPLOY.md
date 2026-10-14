@@ -253,14 +253,15 @@ runtime fits, but not with much headroom. One concurrent call is comfortable.
 Do not plan a demo with three simultaneous callers on the free instance.
 
 **Groq rate limits.** `gpt-oss-120b` on the free tier is capped around 8,000
-tokens per minute. Hitting it makes the agent go quiet mid-call, and the error
-handler in `main.py` speaks a short "I had a brief hiccup" fallback. Check the
-agent logs for a `429`. The escape hatch is one env change, no code:
+tokens per minute. Hitting it makes the agent pause mid-call while LiveKit
+retries; if every retry fails, the error handler in `main.py` speaks a short "I
+had a brief hiccup" fallback. Check the agent logs for a `429`. The escape hatch
+is one env change, no code: the same model through OpenRouter.
 
 ```
-LLM_MODEL=gpt-4o-mini
-LLM_BASE_URL=https://api.openai.com/v1
-OPENAI_API_KEY=sk-...
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_HOST=cerebras   # or groq, or default to let OpenRouter choose
 ```
 
 **LiveKit free minutes.** 5,000 participant minutes per month. Each call burns

@@ -4,7 +4,7 @@ Voice loop (M1) plus tools and persistence (M2). One LiveKit AgentSession, in
 either of two modes chosen by VOICE_MODE in agent/.env:
 
     cascaded (default)  silero VAD -> Deepgram STT -> an OpenAI-protocol LLM
-                        (Groq or OpenAI, see llm.py) -> Rumik TTS.
+                        (Groq, OpenAI or OpenRouter, see llm.py) -> Rumik TTS.
     realtime            one OpenAI speech-to-speech model in place of all three
                         (see realtime.py).
 
@@ -58,6 +58,9 @@ CASCADED_ENV = {
 }
 
 STT_MODEL = "nova-3"
+
+FALLBACK_LINE = "Sorry, I had a brief hiccup. Could you say that again?"
+FALLBACK_DEBOUNCE_S = 8.0
 
 
 def _voice_mode() -> str:
@@ -130,6 +133,39 @@ def _pipeline_config(mode: str) -> dict:
     }
 
 
+def error_fallback(session: AgentSession, clock=time.monotonic):
+    """The session "error" handler: a provider failure must never leave the
+    agent silent, so speak a short fallback, debounced so failures do not stack.
+
+    LiveKit emits this event for every failed attempt, including the ones it is
+    about to retry (a Groq 429, say). Apologising for those made the caller hear
+    "hiccup" followed by the real answer moments later, so only an error the
+    framework has given up on (recoverable=False) is spoken. Retries are already
+    logged by LiveKit; the give-up is logged here with the stage that failed.
+    """
+    last_fallback = {"ts": float("-inf")}
+
+    def on_error(event: object) -> None:
+        error = getattr(event, "error", None)
+        if getattr(error, "recoverable", False):
+            return
+        logger.warning(
+            "%s error, not retried further: %s",
+            getattr(error, "label", None) or type(getattr(event, "source", None)).__name__,
+            getattr(error, "error", error),
+        )
+        now = clock()
+        if now - last_fallback["ts"] < FALLBACK_DEBOUNCE_S:
+            return
+        last_fallback["ts"] = now
+        try:
+            session.say(FALLBACK_LINE, add_to_chat_ctx=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("fallback speech failed: %s", exc)
+
+    return on_error
+
+
 def prewarm(proc: JobProcess) -> None:
     """Load the VAD once per worker process, not once per call."""
     proc.userdata["vad"] = silero.VAD.load()
@@ -167,24 +203,7 @@ async def entrypoint(ctx: JobContext) -> None:
     clock = turn_clock.SessionTurnClock()
     clock.attach(session)
 
-    # A provider hiccup (most likely a Groq rate limit) must never leave the agent
-    # silent. Speak a short fallback, debounced so retries do not stack.
-    last_fallback = {"ts": 0.0}
-
-    def on_error(_event: object) -> None:
-        now = time.monotonic()
-        if now - last_fallback["ts"] < 8.0:
-            return
-        last_fallback["ts"] = now
-        try:
-            session.say(
-                "Sorry, I had a brief hiccup. Could you say that again?",
-                add_to_chat_ctx=False,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("fallback speech failed: %s", exc)
-
-    session.on("error", on_error)
+    session.on("error", error_fallback(session))
 
     # Persist the call record exactly once. Runs the moment the caller hangs up
     # (see below), not only on worker shutdown, so the history view has the
