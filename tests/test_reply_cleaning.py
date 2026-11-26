@@ -86,11 +86,21 @@ class LanguageModeTests(unittest.TestCase):
     def test_hindi_clinic_starts_in_hindi_and_follows_the_caller(self):
         a = agent(("en", "hi"))
         self.assertEqual(a.state.language, "hi")
-        self.assertTrue(a.language_note("मुझे खांसी है").startswith("[language note] The caller is speaking Hindi"))
+        self.assertIn("speaking Hindi", a.instructions_for_language())
+        # Same language: no note, so LiveKit's preemptive reply stays valid.
+        self.assertIsNone(a.language_note("मुझे खांसी है"))
         self.assertEqual(a.state.language, "hi")
-        self.assertIn("speaking English", a.language_note("I would like an appointment please"))
+        note = a.language_note("I would like an appointment please")
+        self.assertTrue(note.startswith("[language note] The caller is speaking English"))
         self.assertEqual(a.state.language, "en")
-        self.assertIn("speaking English", a.language_note("haan ji"))  # too short to switch back
+        self.assertIn("speaking English", a.instructions_for_language())
+        self.assertIsNone(a.language_note("haan ji"))  # too short to switch back
+        self.assertEqual(a.state.language, "en")
+
+    def test_english_clinic_instructions_are_the_base_prompt(self):
+        a = agent(("en",))
+        self.assertEqual(a.instructions_for_language(), a._base_instructions)
+        self.assertNotIn("Reply language", a.instructions)
 
     def test_unsupported_language_gets_the_fixed_line(self):
         a = agent(("en", "hi"))
@@ -128,6 +138,30 @@ class HindiSlotGuardTests(unittest.TestCase):
             with self.subTest(reply=reply):
                 self.assertFalse(self.blocked(reply))
 
+    def test_bajkar_times_and_spellings(self):
+        only_nine = [{"start": "2026-10-08T09:00:00"}]
+        for reply in ("सुबह 9 बजकर 30 मिनट पर slot है।", "saade nau baje aa jaiye", "nau bajkar tees minute",
+                      "baarah baje ka time hai", "gyaarah baje aa jaiye"):
+            with self.subTest(reply=reply):
+                self.assertTrue(_unsupported_times(reply, only_nine, None, hindi=True))
+        self.assertFalse(_unsupported_times("सुबह 9 बजे आ जाइए।", only_nine, None, hindi=True))
+
+    def test_callers_durations_do_not_unlock_times(self):
+        for caller, reply in (("डेढ़ हफ्ते से खांसी है", "दोपहर 1:30 बजे का slot है।"),
+                              ("सवा दो साल का बच्चा है", "2:15 बजे आ जाइए।"),
+                              ("dhai din se bukhar hai", "dhai baje aa jaiye")):
+            with self.subTest(caller=caller):
+                self.assertTrue(_unsupported_times(reply, OFFERED, None, caller, hindi=True))
+        # A time the caller asked for may still be echoed.
+        self.assertFalse(_unsupported_times("साढ़े दस बजे कोई slot नहीं है।", OFFERED, None,
+                                            "साढ़े दस बजे मिल सकता है?", hindi=True))
+
+    def test_hindi_reply_on_a_hindi_clinic_is_checked_even_in_english_state(self):
+        a = agent(("en", "hi"))
+        a.state.language = "en"
+        self.assertEqual(a.speakable("Dr Sharma का appointment कल सुबह 11:30 बजे है"),
+                         "Let me check the available times for you first.")
+
     def test_clinic_hours_in_hindi_are_not_offers(self):
         self.assertFalse(self.blocked("हम सुबह 8 बजे से रात 8 बजे तक खुले हैं।"))
 
@@ -162,6 +196,27 @@ class HindiConsentTests(unittest.TestCase):
                      "nahi pehla mat karo", "ruko", "shayad doosra", "pehla ya doosra", "मत कीजिए पहला"):
             with self.subTest(text=text):
                 self.assertIsNone(self.choice(text))
+
+    def test_another_is_not_a_choice(self):
+        # "दूसरा" also means "another".
+        for text in ("मुझे कोई दूसरा time चाहिए", "koi dusra slot dikhao", "दूसरे दिन का बताइए",
+                     "dusra time hai kya", "पहला वाला नहीं, दूसरा time"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.choice(text))
+
+    def test_more_hindi_refusals_and_waits(self):
+        for text in ("ruk jaiye, pehla wala", "pehla nhi", "पहला न", "ठहरिए, पहला वाला",
+                     "एक मिनट, पहला वाला", "ek minute, pehla wala", "baad mein, pehla wala"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.choice(text))
+
+    def test_hindi_refusals_count_when_the_reply_language_is_english(self):
+        a = agent(("en", "hi"))
+        a.state.language = "en"
+        a.state.offered_slots = OFFERED
+        for text in ("option 2 nahi", "option 2 mat karo"):
+            with self.subTest(text=text):
+                self.assertIsNone(_explicit_choice(text, OFFERED, hindi=a.hindi_enabled))
 
     def test_refusal_words_match_whole_tokens_only(self):
         # "लिया" contains "या" (or); only the whole token is a hedge.

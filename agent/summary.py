@@ -108,14 +108,38 @@ def _squash(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+# Negations that flip a complaint ("सीने में दर्द नहीं है" = no chest pain).
+_NEGATIONS = {"नहीं", "नही", "न", "ना", "मत", "nahi", "nahin", "nhi", "na", "mat",
+              "no", "not", "never", "don't", "dont", "doesn't", "without"}
+_CLAUSE_END_RE = re.compile(r"[।॥.,;!?]")
+MIN_QUOTE_WORDS = 2
+
+
+def _clause_around(line: str, start: int, end: int) -> tuple[str, str]:
+    """The text before and after [start, end) within the same clause."""
+    before = _CLAUSE_END_RE.split(line[:start])[-1]
+    after = _CLAUSE_END_RE.split(line[end:])[0]
+    return before, after
+
+
 def verbatim_quote(quote: str | None, caller_lines: list[str]) -> str | None:
-    """The quote, only if the caller really said it (whitespace aside)."""
+    """The quote, only if the caller really said it (whitespace aside), it is at
+    least two words, and no negation in the same clause flips its meaning."""
     if not isinstance(quote, str):
         return None
     quote = _squash(quote).strip(" \"'“”")
-    if not quote:
+    if len(quote.split()) < MIN_QUOTE_WORDS:
         return None
-    return quote if any(quote in _squash(line) for line in caller_lines) else None
+    for line in caller_lines:
+        line = _squash(line)
+        start = line.find(quote)
+        if start < 0:
+            continue
+        before, after = _clause_around(line, start, start + len(quote))
+        nearby = {w.strip(".,!?\"'").lower() for w in (before + " " + after).split()}
+        if not nearby & _NEGATIONS:
+            return quote
+    return None
 
 
 def structured_fields(state: CallState) -> dict:

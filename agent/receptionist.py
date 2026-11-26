@@ -14,7 +14,7 @@ from typing import AsyncIterable
 from livekit.agents import Agent, ModelSettings, RunContext, function_tool
 
 import cached_audio
-from language import classify, enabled_languages, has_other_indic, next_language, normalize_digits, words
+from language import classify, enabled_languages, has_unsupported_script, next_language, normalize_digits, words
 from prompts import UNSUPPORTED_LINE, build_system_prompt, greeting_for
 from policy import load_policy
 from server_client import ServerClient
@@ -100,8 +100,12 @@ def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text or "")
 
 
-_HI_BAJE = {_nfc(w) for w in ("बजे", "बज", "baje", "baj")}
-_HI_DIGIT_TIME_RE = re.compile(r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*(?:बजे|बज|baje)", re.IGNORECASE)
+_HI_BAJE = {_nfc(w) for w in ("बजे", "baje", "bje")}
+_HI_BAJKAR = {_nfc(w) for w in ("बजकर", "bajkar", "bajke", "बजके")}
+# "बजे" exactly: not the start of "बजकर" (9 बजकर 30 = 9:30, read separately).
+_HI_DIGIT_TIME_RE = re.compile(
+    r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*(?:बजे|baje|bje)(?![\u0900-\u0963\u0966-\u097Fa-z])",
+    re.IGNORECASE)
 _HI_PERIOD_TIME_RE = re.compile(
     r"(?:सुबह|दोपहर|शाम|रात|subah|subha|dopahar|dopehar|shaam|sham|raat)\s*(\d{1,2})(?::(\d{2}))?",
     re.IGNORECASE)
@@ -109,11 +113,19 @@ _HI_HOURS = {_nfc(k): v for k, v in {
     "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पांच": 5, "पाँच": 5, "छह": 6, "छः": 6, "सात": 7,
     "आठ": 8, "नौ": 9, "दस": 10, "ग्यारह": 11, "बारह": 12,
     "ek": 1, "do": 2, "teen": 3, "char": 4, "chaar": 4, "paanch": 5, "panch": 5, "chhah": 6,
-    "chhe": 6, "saat": 7, "aath": 8, "nau": 9, "das": 10, "gyarah": 11, "barah": 12,
+    "chhe": 6, "che": 6, "saat": 7, "aath": 8, "aat": 8, "nau": 9, "das": 10, "dus": 10,
+    "gyarah": 11, "gyaarah": 11, "gyara": 11, "barah": 12, "baarah": 12, "bara": 12,
+}.items()}
+_HI_MINUTE_WORDS = {_nfc(k): v for k, v in {
+    "पांच": 5, "पाँच": 5, "दस": 10, "पंद्रह": 15, "बीस": 20, "पच्चीस": 25, "तीस": 30,
+    "पैंतीस": 35, "चालीस": 40, "पैंतालीस": 45, "पचास": 50, "पचपन": 55,
+    "paanch": 5, "das": 10, "dus": 10, "pandrah": 15, "bees": 20, "pachchis": 25, "tees": 30,
+    "paintis": 35, "chalis": 40, "chaalis": 40, "paintalis": 45, "pachas": 50, "pachpan": 55,
 }.items()}
 # साढ़े N = N:30, सवा N = N:15, पौने N = (N-1):45.
 _HI_FRACTIONS = {_nfc(k): v for k, v in {
-    "साढ़े": 30, "साढे": 30, "sadhe": 30, "saadhe": 30, "सवा": 15, "sava": 15, "savaa": 15,
+    "साढ़े": 30, "साढे": 30, "sadhe": 30, "saadhe": 30, "saade": 30, "sade": 30, "saare": 30,
+    "सवा": 15, "sava": 15, "savaa": 15,
     "पौने": -15, "paune": -15, "pone": -15,
 }.items()}
 _HI_FIXED = {_nfc(k): v for k, v in {
@@ -127,22 +139,41 @@ def _hour_value(token: str) -> int | None:
     return _HI_HOURS.get(token)
 
 
-def _hindi_times(text: str) -> set[tuple[int, int]]:
+def _minute_value(token: str) -> int | None:
+    if token.isdigit() and token.isascii() and 0 <= int(token) < 60:
+        return int(token)
+    return _HI_MINUTE_WORDS.get(token)
+
+
+def _hindi_times(text: str, strict: bool = False) -> set[tuple[int, int]]:
+    """Clock times in Hindi or Hinglish text, as 12-hour (hour, minute).
+
+    `strict` is for the caller's words: डेढ़, ढाई, साढ़े and the like also describe
+    durations and ages ("डेढ़ हफ्ते", "सवा दो साल"), so there they count as a time
+    only when बजे follows. A reply is read leniently: over-reading only blocks.
+    """
     text = normalize_digits(_nfc(text))
     times = set()
     for match in _HI_DIGIT_TIME_RE.finditer(text):
         times.add((int(match.group(1)) % 12 or 12, int(match.group(2) or 0)))
-    for match in _HI_PERIOD_TIME_RE.finditer(text):
-        times.add((int(match.group(1)) % 12 or 12, int(match.group(2) or 0)))
+    if not strict:
+        for match in _HI_PERIOD_TIME_RE.finditer(text):
+            times.add((int(match.group(1)) % 12 or 12, int(match.group(2) or 0)))
     tokens = words(text)
+    at = lambda i: tokens[i] if 0 <= i < len(tokens) else ""  # noqa: E731
     for i, token in enumerate(tokens):
-        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
-        if token in _HI_FIXED:
+        hour = _hour_value(token)
+        # N बजकर M (मिनट): "9 बजकर 30 मिनट", "nau bajkar tees", "9 baj kar 30".
+        if hour and (at(i + 1) in _HI_BAJKAR or (at(i + 1) == "baj" and at(i + 2) == "kar")):
+            minute_at = i + 2 if at(i + 1) in _HI_BAJKAR else i + 3
+            minute = _minute_value(at(minute_at))
+            times.add((hour % 12 or 12, minute if minute is not None else 0))
+        elif token in _HI_FIXED and (not strict or at(i + 1) in _HI_BAJE):
             times.add(_HI_FIXED[token])
-        elif token in _HI_FRACTIONS and _hour_value(nxt):
-            hour, offset = _hour_value(nxt), _HI_FRACTIONS[token]
+        elif token in _HI_FRACTIONS and _hour_value(at(i + 1)) and (not strict or at(i + 2) in _HI_BAJE):
+            hour, offset = _hour_value(at(i + 1)), _HI_FRACTIONS[token]
             times.add(((hour - 1) % 12 or 12, 45) if offset < 0 else (hour, offset))
-        elif token in _HI_HOURS and nxt in _HI_BAJE and (i == 0 or tokens[i - 1] not in _HI_FRACTIONS):
+        elif token in _HI_HOURS and at(i + 1) in _HI_BAJE and at(i - 1) not in _HI_FRACTIONS:
             times.add((_HI_HOURS[token], 0))
     return times
 
@@ -155,8 +186,9 @@ def _unsupported_times(text: str, offered: list[dict], booking: dict | None, cal
     without calling the tool. Those times are never spoken: the reply is
     replaced so the model gets another turn to make the real call.
 
-    In Hindi the English offer words never appear, so Hindi mode fails closed:
-    every time in the reply is checked, whatever the wording.
+    On a Hindi-enabled clinic (`hindi`) the English offer words may never
+    appear, so it fails closed: every time in the reply is checked, Hindi or
+    English, whatever the wording.
     """
     if not hindi and not _OFFER_CUE_RE.search(text):
         return False
@@ -168,7 +200,7 @@ def _unsupported_times(text: str, offered: list[dict], booking: dict | None, cal
     # an offer; only times nobody supplied are blocked.
     allowed = set(_CLINIC_INFO_TIMES) | _spoken_times(caller_text)
     if hindi:
-        allowed |= _hindi_times(caller_text)
+        allowed |= _hindi_times(caller_text, strict=True)
     for start in [s["start"] for s in offered] + ([booking["start"]] if booking and booking.get("start") else []):
         dt = datetime.fromisoformat(start)
         allowed.add((dt.hour % 12 or 12, dt.minute))
@@ -266,19 +298,47 @@ def _spoken_digits(text: str, hindi: bool = False) -> str:
     return "".join(out)
 
 
-# Hindi refusals and hedges: no, don't, wait, maybe, or. Matched as whole
-# tokens ("लिया" contains "या" but is not "or").
+# Hindi refusals and hedges: no, don't, wait, maybe, or, later, any/another.
+# Matched as whole tokens ("लिया" contains "या" but is not "or").
 _HI_REFUSALS = {_nfc(w) for w in (
-    "नहीं", "नही", "ना", "मत", "रुको", "रुकिए", "रुकिये", "रुकें", "शायद", "या", "कैंसल",
-    "nahi", "nahin", "nai", "mat", "ruko", "rukiye", "rukie", "shayad", "ya", "cancel",
+    "नहीं", "नही", "ना", "न", "मत", "रुको", "रुकिए", "रुकिये", "रुकें", "रुक", "ठहरिए", "ठहरिये",
+    "ठहरो", "ठहरें", "शायद", "या", "कैंसल", "मिनट", "बाद", "कोई", "दूसरे",
+    "nahi", "nahin", "nai", "nhi", "nahee", "na", "mat", "ruko", "rukiye", "rukie", "ruk", "rukk",
+    "thehro", "thahro", "thehriye", "thahriye", "shayad", "ya", "cancel", "minute", "baad",
+    "koi", "doosre", "dusre",
 )}
 # Only the unambiguous ordinal forms: "पहले" also means "before", so it is not
-# a choice.
+# a choice. "दूसरा" also means "another", so an ordinal counts only on its own
+# or as "N वाला" / "option N" (see _hindi_ordinal).
 _HI_ORDINALS = {_nfc(k): v for k, v in {
     "पहला": 1, "पहली": 1, "pehla": 1, "pahla": 1, "pehli": 1, "pahli": 1,
     "दूसरा": 2, "दूसरी": 2, "doosra": 2, "dusra": 2, "doosri": 2, "dusri": 2,
     "तीसरा": 3, "तीसरी": 3, "teesra": 3, "tisra": 3, "teesri": 3, "tisri": 3,
 }.items()}
+_HI_ORDINAL_MARKERS = {_nfc(w) for w in (
+    "वाला", "वाली", "wala", "wali", "vala", "vali", "walla", "option", "ऑप्शन", "विकल्प", "number", "नंबर",
+)}
+# Words that may surround a bare ordinal answer without changing it.
+_HI_FILLERS = {_nfc(w) for w in (
+    "please", "plz", "ji", "जी", "हाँ", "हां", "haan", "han", "ha", "ok", "okay", "ठीक", "theek", "thik",
+    "है", "hai", "वो", "woh", "wo", "वह", "चलेगा", "chalega", "book", "बुक", "कर", "kar", "दीजिए",
+    "दीजिये", "dijiye", "दो", "do", "करो", "karo", "देना", "dena",
+)}
+
+
+def _hindi_ordinals(tokens: list[str]) -> set[int]:
+    """Ordinal choices in a Hindi turn: "पहला वाला", "option दूसरा", or a bare
+    "दूसरा" with nothing else meaningful in the turn."""
+    found = set()
+    meaningful = [t for t in tokens if t not in _HI_FILLERS]
+    for i, token in enumerate(tokens):
+        if token not in _HI_ORDINALS:
+            continue
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        prev = tokens[i - 1] if i > 0 else ""
+        if nxt in _HI_ORDINAL_MARKERS or prev in _HI_ORDINAL_MARKERS or meaningful == [token]:
+            found.add(_HI_ORDINALS[token])
+    return found
 
 
 def _explicit_choice(text: str, slots: list[dict], hindi: bool = False) -> int | None:
@@ -287,7 +347,7 @@ def _explicit_choice(text: str, slots: list[dict], hindi: bool = False) -> int |
     This recognizes explicit option ordinals or an exact displayed clock time.
     It is deliberately narrower than general language understanding. Semantic
     intent remains a separate evaluation criterion; a tool argument is not proof.
-    In Hindi mode, Hindi refusals, hedges and ordinals count too.
+    On a Hindi-enabled clinic, Hindi refusals, hedges and ordinals count too.
     """
     text = text.lower().strip()
     choices = set()
@@ -296,7 +356,7 @@ def _explicit_choice(text: str, slots: list[dict], hindi: bool = False) -> int |
         tokens = words(text)
         if any(t in _HI_REFUSALS for t in tokens):
             return None
-        choices |= {_HI_ORDINALS[t] for t in tokens if t in _HI_ORDINALS}
+        choices |= _hindi_ordinals(tokens)
     if re.search(r"\b(no|not|don.?t|wait|maybe|either|or|hold|cancel)\b", text):
         return None
     for n, word in enumerate(("first", "second", "third"), 1):
@@ -316,6 +376,10 @@ def _explicit_choice(text: str, slots: list[dict], hindi: bool = False) -> int |
 
 
 LANGUAGE_NOTE_PREFIX = "[language note] "
+# The standing rule for the current reply language, part of the instructions.
+# It changes only when the caller switches, so LiveKit's preemptive reply
+# (started before the turn ends) stays valid on ordinary turns.
+LANGUAGE_RULE_HEADER = "Reply language for this call so far: "
 LANGUAGE_NOTES = {
     "hi": (
         "The caller is speaking Hindi. Reply in natural Hindi: Hindi words in "
@@ -348,11 +412,12 @@ class Receptionist(Agent):
         if "hi" in languages:
             # A Hindi-enabled clinic greets in Hindi, so it starts in Hindi.
             state.language = "hi"
-        instructions = build_system_prompt(languages)
+        base = build_system_prompt(languages)
         if self.policy["system_addendum"]:
-            instructions += "\n\n" + self.policy["system_addendum"]
-        super().__init__(instructions=instructions)
+            base += "\n\n" + self.policy["system_addendum"]
+        self._base_instructions = base
         self.state = state
+        super().__init__(instructions=self.instructions_for_language())
         self.server = server
         self.publisher = publisher
 
@@ -384,27 +449,41 @@ class Receptionist(Agent):
     def greeting_text(self) -> str:
         return greeting_for(self.state.languages)[0]
 
+    def instructions_for_language(self) -> str:
+        """The system prompt, plus the current reply-language rule on a
+        Hindi-enabled clinic. English-only clinics get exactly the base prompt."""
+        if not self.hindi_enabled:
+            return self._base_instructions
+        return (f"{self._base_instructions}\n\n{LANGUAGE_RULE_HEADER}"
+                f"{LANGUAGE_NOTES[self.state.language]}")
+
     def language_note(self, caller_text: str) -> str | None:
-        """Track the caller's language and tell the model which one to reply in.
+        """Track the caller's language; return a one-turn note when this turn
+        needs one: the caller switched language, or used one we cannot support.
 
         Shared by the live call (on_user_turn_completed) and the eval runner, so
-        both follow the same rule. English-only clinics get no note at all.
+        both follow the same rule. English-only clinics never get a note.
         """
         if not self.hindi_enabled:
             return None
         if classify(caller_text) == "other":
             return LANGUAGE_NOTE_PREFIX + LANGUAGE_NOTES["other"]
-        self.state.language = next_language(
-            self.state.language, caller_text, self.state.languages
-        )
-        return LANGUAGE_NOTE_PREFIX + LANGUAGE_NOTES[self.state.language]
+        previous = self.state.language
+        self.state.language = next_language(previous, caller_text, self.state.languages)
+        if self.state.language != previous:
+            return LANGUAGE_NOTE_PREFIX + LANGUAGE_NOTES[self.state.language]
+        return None
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
-        """Add this turn's language note. LiveKit passes a temporary copy of the
-        context here, so the note steers this reply only and is not kept."""
+        """Steer the reply language. A note goes into this turn's temporary
+        context only when needed; on a switch the standing rule is updated too,
+        so later turns (and their preemptive replies) already carry it."""
+        previous = self.state.language
         note = self.language_note(new_message.text_content or "")
         if note:
             turn_ctx.add_message(role="system", content=note)
+        if self.state.language != previous:
+            await self.update_instructions(self.instructions_for_language())
 
     async def on_enter(self) -> None:
         """Speak first: greet the caller as soon as the agent joins.
@@ -422,13 +501,15 @@ class Receptionist(Agent):
         """The reply as it may be spoken: cleaned, and never offering times a
         tool did not return."""
         cleaned = _clean_reply(text)
-        if self.hindi_enabled and has_other_indic(cleaned):
+        if self.hindi_enabled and has_unsupported_script(cleaned):
             # Never speak a language nobody on the team can check.
             return UNSUPPORTED_LINE
-        hindi = self.state.language == "hi"
+        # Hindi time parsing and fail-closed checking apply on any Hindi-enabled
+        # clinic: they only ever block more, and a model may answer in Hindi
+        # while the caller's last turn was English.
         if _unsupported_times(cleaned, self.state.offered_slots, self.state.booking,
-                              self._recent_user_text(), hindi=hindi):
-            return SLOT_GUARD_REPLY_HI if hindi else SLOT_GUARD_REPLY
+                              self._recent_user_text(), hindi=self.hindi_enabled):
+            return SLOT_GUARD_REPLY_HI if self.state.language == "hi" else SLOT_GUARD_REPLY
         return cleaned
 
     async def tts_node(
@@ -493,7 +574,7 @@ class Receptionist(Agent):
         # spoke recently. Catches the model inventing a placeholder number.
         if _canonical_field(field) == "phone":
             recorded = re.sub(r"\D", "", normalize_digits(value))
-            spoken = _spoken_digits(self._recent_user_text(), hindi=self.state.language == "hi")
+            spoken = _spoken_digits(self._recent_user_text(), hindi=self.hindi_enabled)
             if len(recorded) >= 7 and recorded not in spoken:
                 return (
                     "The caller has not actually given their phone number yet. Ask "
@@ -585,7 +666,7 @@ class Receptionist(Agent):
         if self.state.booking is None and self.state.status != "booking_uncertain":
             latest = self._recent_user_text(turns=1)
             choice = _explicit_choice(latest, self.state.offered_slots,
-                                      hindi=self.state.language == "hi")
+                                      hindi=self.hindi_enabled)
             if latest == self.state.offered_after_user_text or choice != option:
                 return "No unambiguous patient choice for this option. Ask which numbered appointment they want and wait. Do not book yet."
             self.state.selection_evidence = latest

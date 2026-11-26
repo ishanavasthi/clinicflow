@@ -14,7 +14,7 @@ from typing import Any
 from .contracts import CATEGORIES, validate_run, validate_scorecard
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
-from language import classify, enabled_languages, has_other_indic, next_language, words  # noqa: E402
+from language import classify, enabled_languages, has_unsupported_script, next_language, words  # noqa: E402
 from prompts import UNSUPPORTED_LINE  # noqa: E402
 from tools.appointments import format_slot_time_hi  # noqa: E402
 
@@ -210,7 +210,7 @@ def score_run(run: dict, scenario: dict) -> dict:
     outcome_refs = ["final_state.appointments"]
     if "other_indic" in expected.get("forbid_reply_scripts", []):
         spoken_other = [e.get("id") for e in events
-                        if e.get("kind") == "assistant" and has_other_indic(str(e.get("text") or ""))]
+                        if e.get("kind") == "assistant" and has_unsupported_script(str(e.get("text") or ""))]
         if spoken_other:
             outcome_score = 0.0
             outcome_reason += "; replied in an unsupported language"

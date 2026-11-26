@@ -96,11 +96,13 @@ a caller turn of three or more words classifies as the other supported language,
 so "appointment", "yes" or a phone number never flips it. `other` never becomes
 the reply language.
 
-One shared method, `Receptionist.language_note(caller_text)`, updates the state
-and returns a short system note for the next reply (or nothing for an English
-call in an English-only clinic). Live, `on_user_turn_completed` adds it to the
-turn context; the eval runner appends it as a system message after each patient
-turn. Same code, both paths.
+The current reply-language rule is part of the agent's instructions and is
+updated only when the caller switches. `Receptionist.language_note(caller_text)`
+updates the state and returns a one-turn note only on a switch or an
+unsupported-language turn. Live, `on_user_turn_completed` adds that note to the
+turn context and calls `update_instructions` on a switch; the eval runner does
+the same to its message list. A note on every turn was dropped after review: it
+changes the chat context each turn, which discards LiveKit's preemptive reply.
 
 Reply script for Hindi: Hindi words in Devanagari, English clinic words in Latin
 (Rumik's documented format for mulberry). If the listening test picks muga, a
@@ -150,9 +152,12 @@ instructions to the model, not speech.
 
 Every change above is gated. With `CLINIC_LANGUAGES=en` the prompt, greeting,
 tool schemas and descriptions, and every guard behave exactly as today. With
-`en,hi`, the Hindi-only branches (Hindi time parsing, Hindi consent words, Hindi
-slot labels) run only while `CallState.language == "hi"`; an English caller on a
-bilingual clinic gets today's English checks after the bilingual greeting.
+`en,hi`, the stricter Hindi checks (Hindi time parsing with fail-closed slot
+checking, Hindi refusal words) run on every turn of the call, whatever the
+current reply language: they only ever block more, and the model may answer in
+Hindi after a short English turn. (Changed after review: gating them on
+`CallState.language == "hi"` let "option 2 nahi" book.) Hindi slot labels and
+Hindi guard replies follow the current reply language.
 `VOICE_MODE=realtime` with Hindi enabled is refused at startup, because realtime
 replies never pass through `tts_node` and so would skip the Hindi guards.
 

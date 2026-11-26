@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
 from language import (  # noqa: E402
-    classify, enabled_languages, has_other_indic, next_language, normalize_digits, words,
+    classify, enabled_languages, has_unsupported_script, next_language, normalize_digits, words,
 )
 
 EN_HI = ("en", "hi")
@@ -61,10 +61,13 @@ class ScriptTests(unittest.TestCase):
     def test_digits_and_scripts(self):
         self.assertEqual(normalize_digits("९८७६५०१००१"), "9876501001")
         self.assertEqual(normalize_digits("सुबह ९:३० बजे"), "सुबह 9:30 बजे")
-        self.assertTrue(has_other_indic("வணக்கம்"))
-        self.assertTrue(has_other_indic("নমস্কার"))
-        self.assertFalse(has_other_indic("नमस्ते Riya"))
-        self.assertFalse(has_other_indic("Hello"))
+        self.assertTrue(has_unsupported_script("வணக்கம்"))
+        self.assertTrue(has_unsupported_script("নমস্কার"))
+        self.assertFalse(has_unsupported_script("नमस्ते Riya"))
+        self.assertFalse(has_unsupported_script("Hello"))
+        self.assertTrue(has_unsupported_script("ඔබට"))          # Sinhala
+        self.assertTrue(has_unsupported_script("آپ کا نام کیا ہے"))  # Urdu
+        self.assertEqual(classify("آپ کا نام کیا ہے"), "other")
 
 
 if __name__ == "__main__":

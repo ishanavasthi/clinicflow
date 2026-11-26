@@ -73,6 +73,13 @@ class DoctorSummaryTests(unittest.TestCase):
         self.assertIsNone(verbatim_quote("", lines))
         self.assertIsNone(verbatim_quote(None, lines))
 
+    def test_quote_must_not_drop_a_negation_or_be_a_fragment(self):
+        lines = ["सीने में दर्द नहीं है, बस खांसी है", "I don't have chest pain. Just a cough"]
+        self.assertIsNone(verbatim_quote("सीने में दर्द", lines))
+        self.assertIsNone(verbatim_quote("chest pain", lines))
+        self.assertIsNone(verbatim_quote("है", lines))
+        self.assertEqual(verbatim_quote("बस खांसी है", lines), "बस खांसी है")
+
     def test_structured_fields_come_from_state_not_the_model(self):
         chat = replying({"chief_complaint": "Cough", "duration": "3 days", "key_answers": ["No fever"],
                          "patient_words": "तीन दिन से खांसी", "name": "Someone Else"})

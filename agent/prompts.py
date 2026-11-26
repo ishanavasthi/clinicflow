@@ -101,9 +101,11 @@ GREETING_INSTRUCTION_HI = (
 )
 
 # The only reply to a caller speaking a language nobody on the team can check.
+# One question mark only: replies are cut after the first question.
 UNSUPPORTED_LINE = (
     "माफ़ कीजिए, मैं सिर्फ़ हिंदी या English में मदद कर सकती हूँ। "
-    "Sorry, I can help only in Hindi or English."
+    "Sorry, I can help only in Hindi or English. "
+    "क्या हम हिंदी या English में बात कर सकते हैं, can we continue in Hindi or English?"
 )
 
 

@@ -217,10 +217,12 @@ def scenario_languages(scenario: dict) -> tuple[str, ...]:
 
 
 def _add_language_note(messages: list[dict], agent: Receptionist, caller_text: str) -> None:
-    """Mirror the live per-turn note: only the latest note is in the context."""
+    """Mirror the live call (Receptionist.on_user_turn_completed): a note lasts
+    one turn, and a language switch also updates the standing instructions."""
     note = agent.language_note(caller_text)
     messages[:] = [m for m in messages if not (
         m.get("role") == "system" and str(m.get("content", "")).startswith(LANGUAGE_NOTE_PREFIX))]
+    messages[0] = {"role": "system", "content": agent.instructions_for_language()}
     if note:
         messages.append({"role": "system", "content": note})
 
@@ -230,11 +232,16 @@ def _manifest(scenario: dict, *, mode: str, config: dict, suite_hash: str, fixed
     from policy import load_policy
     from evals.judge import JUDGE_EFFORT, SYSTEM as JUDGE_PROMPT
     from evals.scoring import evaluator_version
+    from receptionist import LANGUAGE_NOTES, LANGUAGE_RULE_HEADER
     policy = load_policy()
-    base_prompt = build_system_prompt(scenario_languages(scenario))
+    languages = scenario_languages(scenario)
+    base_prompt = build_system_prompt(languages)
     effective_prompt = base_prompt + ("\n\n" + policy["system_addendum"] if policy["system_addendum"] else "")
+    if "hi" in languages:
+        # The opening instructions (Receptionist.instructions_for_language).
+        effective_prompt += f"\n\n{LANGUAGE_RULE_HEADER}{LANGUAGE_NOTES['hi']}"
     source_paths = [ROOT / "agent" / part for part in (
-        "receptionist.py", "prompts.py", "policy.py", "server_client.py", "state.py",
+        "receptionist.py", "prompts.py", "policy.py", "server_client.py", "state.py", "language.py",
         "tools/appointments.py", "tools/intake.py", "tools/routing.py", "tools/faq.py",
     )]
     source_paths += [ROOT / "server" / part for part in ("models.py", "routes/appointments.py", "routes/patients.py")]

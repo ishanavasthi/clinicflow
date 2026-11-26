@@ -5,7 +5,8 @@ harness and the live call use exactly the same rule.
 
 - `hi` covers Hindi in Devanagari and Hinglish in Roman letters: a Hinglish
   caller is answered in natural Hinglish.
-- `other` is any other Indic script (Tamil, Bengali, ...). It is never the reply
+- `other` is any other Indic script (Tamil, Bengali, ...) or Urdu in Arabic
+  script. It is never the reply
   language: nobody on the team can check those replies, so the caller gets one
   fixed Hindi/English line instead.
 - The reply language changes only on a caller turn of three or more words, so
@@ -27,8 +28,9 @@ Language = Literal["en", "hi", "other"]
 # Hindi sentence like a full stop.
 _TOKEN_RE = re.compile(r"[\w\u0900-\u0963\u0966-\u097F]+")
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
-# Bengali through Malayalam: every Indic block after Devanagari.
-_OTHER_INDIC_RE = re.compile(r"[\u0980-\u0D7F]")
+# Scripts nobody on the team can check: every Indic block after Devanagari
+# (Bengali through Sinhala), plus Arabic script (Urdu).
+_UNSUPPORTED_SCRIPT_RE = re.compile(r"[\u0980-\u0DFF\u0600-\u06FF\u0750-\u077F]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 
@@ -54,14 +56,14 @@ def normalize_digits(text: str) -> str:
     return (text or "").translate(_DIGITS)
 
 
-def has_other_indic(text: str) -> bool:
-    return bool(_OTHER_INDIC_RE.search(text or ""))
+def has_unsupported_script(text: str) -> bool:
+    return bool(_UNSUPPORTED_SCRIPT_RE.search(text or ""))
 
 
 def classify(text: str) -> Language:
     text = text or ""
     deva = len(_DEVANAGARI_RE.findall(text))
-    other = len(_OTHER_INDIC_RE.findall(text))
+    other = len(_UNSUPPORTED_SCRIPT_RE.findall(text))
     latin = len(_LATIN_RE.findall(text))
     letters = deva + other + latin
     if not letters:

@@ -231,14 +231,19 @@ async def entrypoint(ctx: JobContext) -> None:
     translation_tasks: set[asyncio.Task] = set()
     if hindi:
         translate_chat = doctor_notes.make_chat(timeout=6.0)
+        # The caller line waiting for its translation; sent with the first reply
+        # after it. Later replies in the same turn (speech, a tool call, more
+        # speech) are translated on their own.
         last_caller = {"text": ""}
 
         async def _translate(caller_text: str, reply_text: str) -> None:
             result = await doctor_notes.translate_exchange(caller_text, reply_text, translate_chat)
             if not result:
                 return
-            for role, text, text_en in (("user", caller_text, result["user"]),
-                                        ("assistant", reply_text, result["assistant"])):
+            lines = [("assistant", reply_text, result["assistant"])]
+            if caller_text:
+                lines.insert(0, ("user", caller_text, result["user"]))
+            for role, text, text_en in lines:
                 entry = {"role": role, "text": text, "text_en": text_en}
                 state.translations.append(entry)
                 await publisher.publish("translation", entry)
@@ -252,7 +257,7 @@ async def entrypoint(ctx: JobContext) -> None:
             if role == "user":
                 last_caller["text"] = text
                 return
-            if role != "assistant" or not last_caller["text"]:
+            if role != "assistant":
                 return
             caller_text, last_caller["text"] = last_caller["text"], ""
             task = asyncio.create_task(_translate(caller_text, text))
@@ -265,7 +270,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # (see below), not only on worker shutdown, so the history view has the
     # transcript, summary, and routing right away. The shutdown callback is a
     # fallback for a disconnect we never saw (e.g. a dropped connection).
-    finalized = {"done": False}
+    finalized = {"done": False, "task": None}
 
     async def finalize() -> None:
         if finalized["done"]:
@@ -330,10 +335,19 @@ async def entrypoint(ctx: JobContext) -> None:
     def _on_participant_disconnected(_participant: object) -> None:
         # The caller left; persist now instead of waiting for the job to be
         # reclaimed (which can be 20s+ later).
-        asyncio.create_task(finalize())
+        if finalized["task"] is None:
+            finalized["task"] = asyncio.create_task(finalize())
+
+    async def _on_shutdown() -> None:
+        # If the hang-up already started finalize (which may be waiting on the
+        # doctor summary), wait for it so shutdown never drops the record.
+        if finalized["task"] is not None:
+            await finalized["task"]
+        else:
+            await finalize()
 
     ctx.room.on("participant_disconnected", _on_participant_disconnected)
-    ctx.add_shutdown_callback(finalize)
+    ctx.add_shutdown_callback(_on_shutdown)
 
     await session.start(room=ctx.room, agent=Receptionist(state, server, publisher))
     await publisher.publish("status", {"status": "active", "call_id": state.call_id})

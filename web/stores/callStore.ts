@@ -59,6 +59,7 @@ interface CallState {
   setMuted: (muted: boolean) => void;
   setIntakeFields: (fields: Record<string, string>) => void;
   setRecording: (url: string | null) => void;
+  setDoctorSummary: (summary: DoctorSummary) => void;
   endCall: () => void;
   applyEvent: (event: AgentStateEvent) => void;
   reset: () => void;
@@ -110,6 +111,8 @@ export const useCallStore = create<CallState>((set) => ({
     set((state) => ({ intake: { ...state.intake, ...fields } })),
 
   setRecording: (recordingUrl) => set({ recordingUrl }),
+
+  setDoctorSummary: (doctorSummary) => set({ doctorSummary }),
 
   // Keep the collected data and transcript for the post-call view; just mark ended.
   endCall: () => set({ status: "ended", muted: false }),
