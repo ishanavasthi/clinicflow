@@ -3,7 +3,7 @@
   "split": "multilingual",
   "clinic_languages": "en,hi",
   "language": "hi",
-  "script": "deva",
+  "alphabet": "deva",
   "title": "Emergency during intake in Hindi (S13)",
   "initial_message": "नमस्ते, मुझे appointment चाहिए। मेरा नाम सुनीता गुप्ता है, मेरी उम्र 40 है।",
   "patient": {

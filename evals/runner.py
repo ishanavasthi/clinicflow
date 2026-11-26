@@ -43,7 +43,8 @@ if "main" in sys.modules and not str(getattr(sys.modules["main"], "__file__", ""
 
 from db import get_session  # noqa: E402
 from main import app as server_app  # noqa: E402
-from receptionist import Receptionist  # noqa: E402
+from language import enabled_languages  # noqa: E402
+from receptionist import LANGUAGE_NOTE_PREFIX, Receptionist  # noqa: E402
 from server_client import ServerClient  # noqa: E402
 from state import CallState  # noqa: E402
 
@@ -209,13 +210,29 @@ def _version(package: str) -> str | None:
         return None
 
 
+def scenario_languages(scenario: dict) -> tuple[str, ...]:
+    """The clinic's languages for this case. Never read from the environment, so
+    an English case runs English-only whatever CLINIC_LANGUAGES says."""
+    return enabled_languages(scenario.get("clinic_languages") or "en")
+
+
+def _add_language_note(messages: list[dict], agent: Receptionist, caller_text: str) -> None:
+    """Mirror the live per-turn note: only the latest note is in the context."""
+    note = agent.language_note(caller_text)
+    messages[:] = [m for m in messages if not (
+        m.get("role") == "system" and str(m.get("content", "")).startswith(LANGUAGE_NOTE_PREFIX))]
+    if note:
+        messages.append({"role": "system", "content": note})
+
+
 def _manifest(scenario: dict, *, mode: str, config: dict, suite_hash: str, fixed_clock: str) -> dict:
-    from prompts import SYSTEM_PROMPT
+    from prompts import build_system_prompt
     from policy import load_policy
     from evals.judge import JUDGE_EFFORT, SYSTEM as JUDGE_PROMPT
-    from evals.scoring import EVALUATOR_VERSION
+    from evals.scoring import evaluator_version
     policy = load_policy()
-    effective_prompt = SYSTEM_PROMPT + ("\n\n" + policy["system_addendum"] if policy["system_addendum"] else "")
+    base_prompt = build_system_prompt(scenario_languages(scenario))
+    effective_prompt = base_prompt + ("\n\n" + policy["system_addendum"] if policy["system_addendum"] else "")
     source_paths = [ROOT / "agent" / part for part in (
         "receptionist.py", "prompts.py", "policy.py", "server_client.py", "state.py",
         "tools/appointments.py", "tools/intake.py", "tools/routing.py", "tools/faq.py",
@@ -224,7 +241,7 @@ def _manifest(scenario: dict, *, mode: str, config: dict, suite_hash: str, fixed
     settings = {"temperature": config.get("temperature", 0.2), "parallel_tool_calls": False,
                 "reasoning_effort": config.get("reasoning_effort"), "host": config.get("host"),
                 "host_fallbacks": False}
-    return {
+    manifest = {
         "code_revision": _revision(), "source_hash": _hash_files(source_paths),
         "agent_provider": config.get("provider"), "agent_model": config.get("model"),
         "agent_settings": settings, "prompt_hash": hashlib.sha256(effective_prompt.encode()).hexdigest(),
@@ -233,13 +250,17 @@ def _manifest(scenario: dict, *, mode: str, config: dict, suite_hash: str, fixed
         "judge_settings": {"effort": JUDGE_EFFORT, "batch": True} if config.get("judge_model") else None,
         "fixture_hash": content_hash({"fixture": scenario.get("fixture"), "fixed_clock": fixed_clock,
                                       "builder_hash": hashlib.sha256((ROOT / "evals" / "fixtures.py").read_bytes()).hexdigest()}),
-        "suite_hash": suite_hash, "evaluator_version": EVALUATOR_VERSION,
+        "suite_hash": suite_hash, "evaluator_version": evaluator_version(scenario),
         "judge": {"provider": "anthropic", "model": config.get("judge_model"),
                   "settings": {"effort": JUDGE_EFFORT, "output": "json_schema"},
                   "prompt_hash": hashlib.sha256(JUDGE_PROMPT.encode()).hexdigest()},
         "dependencies": {name: _version(name) for name in ("livekit-agents", "fastapi", "sqlmodel", "httpx")},
         "fixed_clock": fixed_clock, "mode": mode,
     }
+    if scenario.get("clinic_languages"):
+        # Multilingual cases only, so English manifests are unchanged.
+        manifest["clinic_languages"] = scenario["clinic_languages"]
+    return manifest
 
 
 def _call_arguments(raw: str, name: str, tool_schemas: dict[str, dict], agent: Receptionist) -> dict:
@@ -316,7 +337,7 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
         server_app.dependency_overrides[clock_dependency] = lambda: fixed_now
     transport = httpx.ASGITransport(app=server_app)
     client = FaultClient(engine=engine, fault=scenario.get("fault"), emit=emit, transport=transport)
-    agent = EvaluationReceptionist(state, client, TracePublisher(emit))
+    agent = EvaluationReceptionist(state, client, TracePublisher(emit), languages=scenario_languages(scenario))
     agent.eval_user_history = []
     schemas = _tool_schemas(agent)
     schemas_by_name = {item["function"]["name"]: item for item in schemas}
@@ -324,7 +345,7 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
     requests = 0
     post_booking_replies = 0
     started = time.perf_counter()
-    from prompts import GREETING_TEXT
+    greeting = agent.greeting_text
     messages = [{"role": "system", "content": agent.instructions}]
     patient = ScriptedPatient(scenario)
 
@@ -347,12 +368,13 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
         return output
 
     try:
-        emit("assistant", text=GREETING_TEXT)
+        emit("assistant", text=greeting)
         initial = str(scenario["initial_message"])
         emit("user", text=initial)
         agent.eval_user_history.append(initial)
-        messages.append({"role": "assistant", "content": GREETING_TEXT})
+        messages.append({"role": "assistant", "content": greeting})
         messages.append({"role": "user", "content": initial})
+        _add_language_note(messages, agent, initial)
         if mode == "scripted":
             for step in scenario.get("script", []):
                 turn += 1
@@ -360,6 +382,7 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                     utterance = str(step["user"])
                     emit("user", text=utterance)
                     agent.eval_user_history.append(utterance)
+                    agent.language_note(utterance)
                 await invoke(step["name"], json.dumps(step.get("arguments", {})))
         else:
             base_url = str(agent_config.get("base_url") or "https://api.openai.com/v1").rstrip("/")
@@ -425,6 +448,7 @@ async def run_scenario(scenario: dict, agent_config: dict, *, trial: int = 1,
                     emit("user", text=answer)
                     agent.eval_user_history.append(answer)
                     messages.append({"role": "user", "content": answer})
+                    _add_language_note(messages, agent, answer)
                 else:
                     result["termination"] = "turn_budget"
     except BudgetExceeded as exc:
@@ -558,7 +582,7 @@ async def run_suite(args) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=("development", "holdout", "all"), default="development")
+    parser.add_argument("--suite", choices=("development", "holdout", "multilingual", "all"), default="development")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--mode", choices=("live", "scripted"), default="live")

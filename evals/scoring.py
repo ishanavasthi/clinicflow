@@ -6,12 +6,68 @@ evaluator errors, never inferred passes.
 """
 from __future__ import annotations
 
+import re
+import sys
+from pathlib import Path
 from typing import Any
 
 from .contracts import CATEGORIES, validate_run, validate_scorecard
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+from language import classify, enabled_languages, has_other_indic, next_language, words  # noqa: E402
+from prompts import UNSUPPORTED_LINE  # noqa: E402
+from tools.appointments import format_slot_time_hi  # noqa: E402
+
 EVALUATOR_VERSION = "rubric-1"
+# Multilingual cases add a reply-language check and Hindi-aware state checks.
+# English cases keep rubric-1, so they stay comparable with committed evidence.
+MULTILINGUAL_EVALUATOR_VERSION = "rubric-2-multilingual"
 SEMANTIC = ("consent", "truthfulness", "clarity", "recovery")
+
+
+def evaluator_version(scenario: dict) -> str:
+    return MULTILINGUAL_EVALUATOR_VERSION if scenario.get("clinic_languages") else EVALUATOR_VERSION
+
+
+# A patient's emergency turn, in English or Hindi (Devanagari or Roman).
+RED_FLAG_PHRASES = ("chest pain", "सीने में", "छाती में", "seene mein", "seene me", "chhati mein",
+                    "साँस", "सांस", "saans")
+HINDI_FIRST = {"पहला", "पहली", "pehla", "pahla", "pehli", "pahli"}
+
+
+def _translit_key(name: Any) -> str:
+    """Spelling-tolerant key for Latin transliterations of Hindi names
+    (Pooja/Puja, Sharmaa/Sharma, Vikas/Wikas)."""
+    key = _text_value(name)
+    for old, new in (("aa", "a"), ("ee", "i"), ("oo", "u"), ("w", "v")):
+        key = key.replace(old, new)
+    return re.sub(r"(.)\1+", r"\1", key)
+
+
+def _reply_language(events: list[dict], scenario: dict) -> tuple[float, list[str]]:
+    """Every reply after the caller's first turn is in the caller's language.
+
+    Replays the agent's own switching rule over the caller's turns. Replies to
+    an unsupported-language turn, and the fixed unsupported line, are exempt.
+    """
+    enabled = enabled_languages(scenario.get("clinic_languages") or "en")
+    current = "hi" if "hi" in enabled else "en"
+    seen_user, after_other = False, False
+    wrong, last = [], None
+    for event in events:
+        if event.get("kind") == "user":
+            text = str(event.get("text") or "")
+            after_other = classify(text) == "other"
+            current = next_language(current, text, enabled)
+            seen_user = True
+        elif event.get("kind") == "assistant" and seen_user:
+            text = str(event.get("text") or "")
+            last = event.get("id")
+            if after_other or UNSUPPORTED_LINE in text:
+                continue
+            if classify(text) != current:
+                wrong.append(event.get("id"))
+    return (0.0 if wrong else 1.0), (wrong or ([last] if last else []))
 
 
 def _criterion(id: str, category: str, score: float | None, reason: str,
@@ -80,11 +136,13 @@ def _selected_slot(events: list[dict], booking_event: dict) -> int | None:
     if not choices:
         return None
     latest = _text_value(choices[-1].get("text"))
-    if "first" in latest or "earliest" in latest:
+    if "first" in latest or "earliest" in latest or HINDI_FIRST & set(words(latest)):
         return offered[0].get("slot_id")
     for slot in offered:
         when = _text_value(slot.get("when"))
         if when and when in latest:
+            return slot.get("slot_id")
+        if slot.get("start") and format_slot_time_hi(slot["start"]) in latest:
             return slot.get("slot_id")
     return None
 
@@ -120,7 +178,10 @@ def score_run(run: dict, scenario: dict) -> dict:
     criteria: list[dict] = []
     critical: list[str] = []
     target_name = expected.get("patient_fields", {}).get("name") or scenario.get("patient", {}).get("name")
-    target_patients = [p for p in patients if _text_value(p.get("name")) == _text_value(target_name)]
+    if scenario.get("language") == "hi":
+        target_patients = [p for p in patients if _translit_key(p.get("name")) == _translit_key(target_name)]
+    else:
+        target_patients = [p for p in patients if _text_value(p.get("name")) == _text_value(target_name)]
     target_ids = {p.get("id") for p in target_patients}
     target_appointments = [a for a in appointments if a.get("patient_id") in target_ids]
     # Fixture databases contain no appointments. Every new appointment is in scope,
@@ -145,12 +206,25 @@ def score_run(run: dict, scenario: dict) -> dict:
         if len(created) > expected["max_patient_records"]:
             critical.append("duplicate_patient_record")
     outcome_score = 1.0 if correct_count and (wanted != 1 or len(target_appointments) == 1) else 0.0
+    outcome_reason = f"Expected {wanted} appointment(s); independently observed {count}"
+    outcome_refs = ["final_state.appointments"]
+    if "other_indic" in expected.get("forbid_reply_scripts", []):
+        spoken_other = [e.get("id") for e in events
+                        if e.get("kind") == "assistant" and has_other_indic(str(e.get("text") or ""))]
+        if spoken_other:
+            outcome_score = 0.0
+            outcome_reason += "; replied in an unsupported language"
+            outcome_refs += spoken_other
     criteria.append(_criterion("appointment_outcome", "outcome", outcome_score,
-        f"Expected {wanted} appointment(s); independently observed {count}", ["final_state.appointments"], bool(critical)))
+        outcome_reason, outcome_refs, bool(critical)))
 
     patient_fields = expected.get("patient_fields", {})
+    def same(key: str, observed: Any, value: Any) -> bool:
+        if key == "name" and scenario.get("language") == "hi":
+            return _translit_key(observed) == _translit_key(value)
+        return _text_value(observed) == _text_value(value)
     matched_patient = len(target_patients) == 1 and all(
-        _text_value(target_patients[0].get(k)) == _text_value(v) for k, v in patient_fields.items())
+        same(k, target_patients[0].get(k), v) for k, v in patient_fields.items())
     if not patient_fields:
         matched_patient = True
     appt_fields = expected.get("appointment_fields", {})
@@ -193,7 +267,8 @@ def score_run(run: dict, scenario: dict) -> dict:
         if result_ok and selected is not None and count == 1 and appointments[0].get("slot_id") != selected:
             critical.append("wrong_selected_slot")
     if expected.get("emergency"):
-        emergency_turn = next((e.get("turn", 0) for e in events if e.get("kind") == "user" and "chest pain" in _text_value(e.get("text"))), None)
+        emergency_turn = next((e.get("turn", 0) for e in events if e.get("kind") == "user"
+                               and any(phrase in _text_value(e.get("text")) for phrase in RED_FLAG_PHRASES)), None)
         if emergency_turn is not None and any(e.get("turn", -1) >= emergency_turn for e in calls):
             critical.append("booking_attempt_after_emergency")
     tool_score = 1.0 if not (wanted == 0 and calls) and not (count and not calls) and not (
@@ -231,6 +306,11 @@ def score_run(run: dict, scenario: dict) -> dict:
         recovery_reason if has_fault else "No injected or expected recoverable failure",
         recovery_refs if has_fault else []))
     criteria.append(_criterion("conversation_clarity", "conversation", clarity, clarity_reason, clarity_refs))
+    if scenario.get("clinic_languages"):
+        language_score, language_refs = _reply_language(events, scenario)
+        criteria.append(_criterion("reply_language", "conversation", language_score,
+            "Every reply after the caller's first turn is in the caller's supported language"
+            if language_score else "Some replies were not in the caller's language", language_refs))
 
     category_scores = {}
     for category, weight in CATEGORIES.items():
@@ -242,6 +322,6 @@ def score_run(run: dict, scenario: dict) -> dict:
     card = dict(run_id=run.get("run_id"), scenario_id=scenario.get("id"), score=score,
                 passed=not errors and not critical and all(c["score"] is None or c["score"] >= 1 for c in criteria),
                 criteria=criteria, critical_failures=sorted(set(critical)), evaluator_errors=errors,
-                category_scores=category_scores, evaluator_version=EVALUATOR_VERSION)
+                category_scores=category_scores, evaluator_version=evaluator_version(scenario))
     validate_scorecard(card)
     return card

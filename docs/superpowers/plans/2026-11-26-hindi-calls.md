@@ -329,7 +329,7 @@ def test_digits_and_scripts():
   - `"split": "multilingual"`
   - `"clinic_languages": "en,hi"`
   - `"language": "hi"|"en"|"ta"`
-  - `"script": "deva"|"latn"`, for hi only
+  - `"alphabet": "deva"|"latn"`, for hi only (`script` already holds scripted-mode steps)
   - `"spoken"`: Hindi spellings of the patient facts, used in answers. The `patient` facts stay canonical (Latin name, digits, English symptom) because scoring compares against them.
 - `ScriptedPatient`:
   - Matches its question patterns in both English and Hindi, whatever language the agent replied in. That keeps the run going so the language check, not the patient, scores the miss.

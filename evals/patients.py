@@ -18,7 +18,7 @@ evaluator's expectations.
 
 Multilingual cases (`clinic_languages` set) also recognise Hindi and Hinglish
 questions, whatever language the agent used, and answer in the scenario's
-`language` and `script`, from the Hindi spellings in `spoken`. The canonical
+`language` and `alphabet`, from the Hindi spellings in `spoken`. The canonical
 `patient` facts stay in Latin letters and digits, because scoring compares the
 database against them. Patterns avoid regex word boundaries next to Hindi:
 Python's word characters do not cover Devanagari vowel signs.
@@ -114,7 +114,7 @@ class ScriptedPatient:
         self.multilingual = bool(scenario.get("clinic_languages"))
         self.language = scenario.get("language", "en")
         self.hindi = self.language == "hi"
-        self.answers = HI_ANSWERS[scenario.get("script", "deva")] if self.hindi else None
+        self.answers = HI_ANSWERS[scenario.get("alphabet", "deva")] if self.hindi else None
         self.spoken = {k: str(v) for k, v in (scenario.get("spoken") or {}).items()}
         self.facts.setdefault("timing", self.answers["timing_default"] if self.hindi else DEFAULT_TIMING)
         self.used: set[str] = set()

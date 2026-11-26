@@ -35,6 +35,6 @@ and holdout suite hashes are unchanged. Each case runs the agent with
 
 `patient` facts stay canonical (Latin names, digits, English symptoms) because
 the database is scored against them; `spoken` holds the Hindi spellings the
-patient says. `script` is `deva` or `latn`. The Tamil line is fixed text
+patient says. `alphabet` is `deva` (Devanagari) or `latn` (Roman). The Tamil line is fixed text
 ("Hello, I need to see a doctor."); no case is judged by ear. Rule patterns
 avoid regex word boundaries next to Hindi text.

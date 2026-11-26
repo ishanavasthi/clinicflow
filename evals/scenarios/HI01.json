@@ -3,7 +3,7 @@
   "split": "multilingual",
   "clinic_languages": "en,hi",
   "language": "hi",
-  "script": "deva",
+  "alphabet": "deva",
   "title": "Normal booking in Hindi (S01)",
   "initial_message": "नमस्ते, मुझे General Medicine में appointment चाहिए, लगातार खांसी है। मेरा नाम राहुल शर्मा है, उम्र 34, फ़ोन 9876501101।",
   "patient": {

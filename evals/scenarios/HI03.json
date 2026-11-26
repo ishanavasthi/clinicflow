@@ -3,7 +3,7 @@
   "split": "multilingual",
   "clinic_languages": "en,hi",
   "language": "hi",
-  "script": "latn",
+  "alphabet": "latn",
   "title": "Corrected name and phone in Roman Hinglish (S03)",
   "initial_message": "Mujhe General Medicine mein dikhana hai, khansi hai. Mera naam Neha Verma hai, umar 29, phone 9876501003. Galti ho gayi: mera naam Pooja Verma hai aur phone 9876501300 hai.",
   "patient": {
