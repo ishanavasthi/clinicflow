@@ -1,0 +1,58 @@
+{
+  "id": "HI01",
+  "split": "multilingual",
+  "clinic_languages": "en,hi",
+  "language": "hi",
+  "script": "deva",
+  "title": "Normal booking in Hindi (S01)",
+  "initial_message": "नमस्ते, मुझे General Medicine में appointment चाहिए, लगातार खांसी है। मेरा नाम राहुल शर्मा है, उम्र 34, फ़ोन 9876501101।",
+  "patient": {
+    "name": "Rahul Sharma",
+    "phone": "9876501101",
+    "department": "General Medicine",
+    "symptoms": "persistent cough",
+    "age": "34"
+  },
+  "spoken": {
+    "name": "राहुल शर्मा",
+    "symptoms": "लगातार खांसी"
+  },
+  "policy": {
+    "max_turns": 12,
+    "rules": [
+      {
+        "id": "r1",
+        "match": "\\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\b|सोमवार|मंगलवार|बुधवार|गुरुवार|शुक्रवार|शनिवार|रविवार|(?<!\\d)\\d{1,2}:\\d{2}(?!\\d)|these (?:times|options)",
+        "reply": "__FIRST_OFFERED_TIME__",
+        "once": true
+      },
+      {
+        "id": "r2",
+        "match": "appointment|available|availability|slot|time|prefer|समय|टाइम|उपलब्ध|स्लॉट|kab|कब",
+        "once": true,
+        "reply": "हाँ, पहले उपलब्ध समय बता दीजिए।"
+      },
+      {
+        "id": "r3",
+        "match": "confirm|book it|shall I book|proceed|पुष्टि|बुक कर|book kar",
+        "once": true,
+        "reply": "हाँ, वो appointment book कर दीजिए।"
+      }
+    ],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "book",
+    "appointment_count": 1,
+    "patient_fields": {
+      "name": "Rahul Sharma",
+      "phone": "9876501101"
+    },
+    "appointment_fields": {
+      "department": "General Medicine"
+    },
+    "require_consent": true,
+    "max_appointments": 1
+  }
+}

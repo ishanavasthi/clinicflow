@@ -1,0 +1,23 @@
+{
+  "id": "XL01",
+  "split": "multilingual",
+  "clinic_languages": "en,hi",
+  "language": "ta",
+  "title": "Caller speaks Tamil (unsupported language)",
+  "initial_message": "வணக்கம், எனக்கு ஒரு மருத்துவரைப் பார்க்க வேண்டும்.",
+  "patient": {},
+  "policy": {
+    "max_turns": 4,
+    "stop_after": "हिंदी|Hindi|English",
+    "rules": [],
+    "fallback": null
+  },
+  "fault": null,
+  "expected": {
+    "outcome": "decline",
+    "appointment_count": 0,
+    "forbid_reply_scripts": [
+      "other_indic"
+    ]
+  }
+}

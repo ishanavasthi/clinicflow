@@ -55,5 +55,43 @@ class PatientTests(unittest.TestCase):
         self.assertEqual(p.unmatched, "Lovely weather today.")
 
 
+
+SLOTS_HI = [{"slot_id": 7, "start": "2026-07-18T09:30:00", "when": "Saturday, July 18 at 9:30 in the morning"}]
+
+
+class HindiPatientTests(unittest.TestCase):
+    def test_answers_hindi_questions_in_devanagari(self):
+        p = patient("HI01")
+        self.assertEqual(p.reply("आपका नाम क्या है?", []), "मेरा नाम राहुल शर्मा है।")
+        self.assertEqual(p.reply("आपकी उम्र कितनी है?", []), "मेरी उम्र 34 साल है।")
+
+    def test_answers_english_questions_in_hindi(self):
+        self.assertEqual(patient("HI01").reply("May I have your phone number?", []), "मेरा नंबर 9876501101 है।")
+
+    def test_answers_in_roman_hinglish(self):
+        self.assertEqual(patient("HI03").reply("Aapka phone number kya hai?", []), "Mera number 9876501300 hai.")
+
+    def test_confirms_a_hindi_read_back(self):
+        self.assertEqual(patient("HI01").reply("आपका नाम राहुल शर्मा है, सही है?", []), "हाँ, सही है।")
+
+    def test_chooses_the_first_offered_slot_in_hindi(self):
+        p = patient("HI01")
+        offer = "शनिवार सुबह 9:30 बजे Dr. Vikram Nair के साथ, कौन सा ठीक रहेगा?"
+        self.assertEqual(p.reply(offer, SLOTS_HI), "पहला वाला, शनिवार, 18 जुलाई, सुबह 9:30 बजे, book kar dijiye.")
+        self.assertEqual(patient("HI03").reply("Saturday 9:30 ya 11 baje?", SLOTS_HI),
+                         "Pehla wala, 9:30 wala, book kar dijiye.")
+
+    def test_reports_chest_pain_in_hindi(self):
+        self.assertIn("सीने में तेज़ दर्द", patient("HI13").reply("आपको क्या तकलीफ है?", []))
+
+    def test_tamil_caller_stops_after_the_fixed_line(self):
+        p = patient("XL01")
+        self.assertIsNone(p.reply("माफ़ कीजिए, मैं सिर्फ़ हिंदी या English में मदद कर सकती हूँ।", []))
+        self.assertIsNone(p.unmatched)
+
+    def test_english_cases_ignore_hindi_questions(self):
+        self.assertIsNone(patient("S01").reply("आपका नाम क्या है?", []))
+
+
 if __name__ == "__main__":
     unittest.main()
