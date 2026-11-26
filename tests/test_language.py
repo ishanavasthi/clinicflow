@@ -26,6 +26,7 @@ class ClassifyTests(unittest.TestCase):
     def test_words_keep_devanagari_vowel_signs(self):
         self.assertEqual(words("नहीं, पहला नहीं!"), ["नहीं", "पहला", "नहीं"])
         self.assertEqual(words("Pehla wala, 9:30"), ["pehla", "wala", "9", "30"])
+        self.assertEqual(words("पहला नहीं। ठीक है॥"), ["पहला", "नहीं", "ठीक", "है"])
 
 
 class SwitchingTests(unittest.TestCase):

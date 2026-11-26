@@ -129,7 +129,7 @@ digits, `H:MM` times, names in Latin script. Only speech is localised.
   words, and साढ़े/सवा/पौने/डेढ़/ढाई. In Hindi mode it fails closed: every time
   in a reply is checked whether or not an English offer word appears.
 - **Slot labels:** `tools/appointments.py` adds `format_slot_time_hi` (for
-  example "शनिवार, 19 जुलाई, सुबह 9:30 बजे"). In Hindi mode the availability and
+  example "शनिवार, 18 जुलाई, सुबह 9:30 बजे"). In Hindi mode the availability and
   booking results give the model this label to copy, so it never translates a
   time itself.
 - **Consent:** in Hindi mode only, `_explicit_choice` learns Hindi refusals and hedges (नहीं/nahi,

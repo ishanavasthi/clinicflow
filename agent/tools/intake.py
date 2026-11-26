@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+from language import normalize_digits
 from state import INTAKE_FIELDS, AgentStatePublisher, CallState
 from server_client import ServerClient
 
@@ -30,6 +31,9 @@ def _normalize(field: str, value: str) -> str:
     """Clean a value before storing. The LLM is asked to normalize too; this is a
     safety net so a phone always lands as a 10-digit Indian mobile number."""
     value = value.strip()
+    if field in ("phone", "age"):
+        # Hindi callers may give Devanagari numerals; store ASCII digits.
+        value = normalize_digits(value)
     if field == "phone":
         digits = re.sub(r"\D", "", value)
         if len(digits) > 10 and digits.startswith("91"):

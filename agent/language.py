@@ -23,10 +23,12 @@ from typing import Literal
 SUPPORTED = ("en", "hi")
 Language = Literal["en", "hi", "other"]
 
-_TOKEN_RE = re.compile(r"[\wऀ-ॿ]+")
-_DEVANAGARI_RE = re.compile(r"[ऀ-ॿ]")
+# Devanagari letters and signs, but not the danda or double danda, which end a
+# Hindi sentence like a full stop.
+_TOKEN_RE = re.compile(r"[\w\u0900-\u0963\u0966-\u097F]+")
+_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 # Bengali through Malayalam: every Indic block after Devanagari.
-_OTHER_INDIC_RE = re.compile(r"[ঀ-ൿ]")
+_OTHER_INDIC_RE = re.compile(r"[\u0980-\u0D7F]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 

@@ -200,7 +200,7 @@ def test_digits_and_scripts():
 **Interfaces:**
 - Consumes: `language.normalize_digits`, `language.words`.
 - Produces:
-  - `format_slot_time_hi(iso: str) -> str`. Example: `"2026-07-19T09:30:00"` gives `"शनिवार, 19 जुलाई, सुबह 9:30 बजे"`. Day period by hour: before 12 is सुबह, before 17 is दोपहर, otherwise शाम. Use `9 बजे` when the minute is 0. Weekday and month names come from fixed Hindi tables.
+  - `format_slot_time_hi(iso: str) -> str`. Example: `"2026-07-18T09:30:00"` gives `"शनिवार, 18 जुलाई, सुबह 9:30 बजे"`. Day period by hour: before 12 is सुबह, before 17 is दोपहर, otherwise शाम. Use `9 बजे` when the minute is 0. Weekday and month names come from fixed Hindi tables.
   - `_unsupported_times(text, offered, booking, caller_text="", hindi: bool = False) -> bool`: the new keyword defaults to today's behaviour.
   - `_explicit_choice(text, slots, hindi: bool = False) -> int | None`
   - `_spoken_digits(text)`: also maps Devanagari digits and Hindi digit words: शून्य/shunya 0, एक/ek 1, दो/do 2, तीन/teen 3, चार/chaar/char 4, पांच/पाँच/paanch 5, छह/छः/chhah/chhe 6, सात/saat 7, आठ/aath 8, नौ/nau 9. These keys never appear as English digit words, so the English result is unchanged. Add "do" only in the Hindi branch, because "do" is an English word. To allow that, add `hindi: bool = False` to `_spoken_digits` too.
@@ -226,7 +226,7 @@ def test_digits_and_scripts():
   - **Digits:** `_spoken_digits("नौ आठ सात छह पांच शून्य एक शून्य शून्य एक", hindi=True) == "9876501001"`, `_spoken_digits("९८७६५०१००१", hindi=True) == "9876501001"`, and `_spoken_digits("do it", hindi=False) == ""`.
   - **Intake:** `_normalize("phone", "९८७६५०१००१") == "9876501001"`, and `_normalize("age", "३४") == "34"` (normalising Devanagari digits is harmless in English).
   - **Routing:** `_canonical("आपातकालीन") == "Emergency"`, `_canonical("Emergency") == "Emergency"`, `_canonical("हृदय रोग") == "Cardiology"`.
-  - **Slot label** (in `tests/test_booking_backend.py`): `format_slot_time_hi("2026-07-19T09:30:00") == "शनिवार, 19 जुलाई, सुबह 9:30 बजे"` and `format_slot_time_hi("2026-07-21T14:00:00") == "मंगलवार, 21 जुलाई, दोपहर 2 बजे"`.
+  - **Slot label** (in `tests/test_booking_backend.py`): `format_slot_time_hi("2026-07-18T09:30:00") == "शनिवार, 18 जुलाई, सुबह 9:30 बजे"` and `format_slot_time_hi("2026-07-21T14:00:00") == "मंगलवार, 21 जुलाई, दोपहर 2 बजे"`.
 - [ ] **Step 2:** Run `.venv/bin/python -m pytest -q tests/test_reply_cleaning.py tests/test_booking_backend.py`. Expected: the new tests FAIL.
 - [ ] **Step 3:** Implement:
   - **`_unsupported_times` with `hindi=True`:**
@@ -340,7 +340,7 @@ def test_digits_and_scripts():
   - `patient("HI01").reply("आपकी उम्र कितनी है?", [])` == `"मेरी उम्र 34 साल है।"`
   - `patient("HI01").reply("May I have your phone number?", [])` == `"मेरा नंबर 9876501101 है।"` (English question, Hindi answer).
   - `patient("HI03").reply("Aapka phone number kya hai?", [])` == `"Mera number 9876501300 hai."`
-  - `patient("HI01")`, given an offer containing `"शनिवार"` or `"9:30"`, returns `"पहला वाला, शनिवार, 19 जुलाई, सुबह 9:30 बजे, book kar dijiye."` with `SLOTS_HI = [{"slot_id": 7, "start": "2026-07-19T09:30:00", "when": "Saturday, July 19 at 9:30 in the morning"}]`.
+  - `patient("HI01")`, given an offer containing `"शनिवार"` or `"9:30"`, returns `"पहला वाला, शनिवार, 18 जुलाई, सुबह 9:30 बजे, book kar dijiye."` with `SLOTS_HI = [{"slot_id": 7, "start": "2026-07-18T09:30:00", "when": "Saturday, July 18 at 9:30 in the morning"}]`.
   - `patient("HI13").reply("आपको क्या तकलीफ है?", [])` contains "सीने में तेज़ दर्द".
   - The existing English tests are unchanged and still pass.
 - [ ] **Step 2:** Run `.venv/bin/python -m pytest -q tests/test_patients.py`. Expected: FAIL.

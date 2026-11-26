@@ -29,6 +29,29 @@ def format_slot_time(iso: str) -> str:
     return f"{dt.strftime('%A, %B %-d')} at {clock} {period}"
 
 
+_HI_WEEKDAYS = ("सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार")
+_HI_MONTHS = ("जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त",
+              "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर")
+
+
+def format_slot_time_hi(iso: str) -> str:
+    """The Hindi spoken label for a slot, e.g. 'शनिवार, 18 जुलाई, सुबह 9:30 बजे'.
+
+    Given to the model in Hindi calls so it copies the time instead of
+    translating one itself. Digits stay ASCII so the slot guard can check them.
+    """
+    dt = datetime.fromisoformat(iso)
+    hour12 = dt.hour % 12 or 12
+    clock = f"{hour12}" if dt.minute == 0 else f"{hour12}:{dt.minute:02d}"
+    if dt.hour < 12:
+        period = "सुबह"
+    elif dt.hour < 17:
+        period = "दोपहर"
+    else:
+        period = "शाम"
+    return f"{_HI_WEEKDAYS[dt.weekday()]}, {dt.day} {_HI_MONTHS[dt.month - 1]}, {period} {clock} बजे"
+
+
 async def check_availability(
     state: CallState,
     server: ServerClient,

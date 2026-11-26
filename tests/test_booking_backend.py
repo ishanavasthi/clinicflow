@@ -90,5 +90,14 @@ class BookingTransactions(unittest.TestCase):
         self.assertEqual(self.client.get('/appointments/availability', params={'department':'Orthopedics', 'date':'bad'}).status_code, 422)
         self.assertEqual(self.client.get('/appointments/availability', params={'department':'Orthopedics', 'not_before':'27:00'}).status_code, 422)
 
+class HindiSlotLabelTests(unittest.TestCase):
+    def test_hindi_slot_labels(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+        from tools.appointments import format_slot_time_hi
+        self.assertEqual(format_slot_time_hi("2026-07-18T09:30:00"), "शनिवार, 18 जुलाई, सुबह 9:30 बजे")
+        self.assertEqual(format_slot_time_hi("2026-07-21T14:00:00"), "मंगलवार, 21 जुलाई, दोपहर 2 बजे")
+        self.assertEqual(format_slot_time_hi("2026-12-07T18:15:00"), "सोमवार, 7 दिसंबर, शाम 6:15 बजे")
+
+
 if __name__ == '__main__':
     unittest.main()
