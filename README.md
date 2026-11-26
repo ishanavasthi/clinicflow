@@ -199,6 +199,9 @@ events are real server state, not mockups.
 ## Highlights
 
 - Real-time bidirectional voice with barge-in and an instant cached greeting.
+- Hindi, Hinglish and English calls behind one setting, with the same guardrails,
+  live English translation for staff and an English doctor summary
+  ([details](#hindi-and-hinglish-calls)).
 - Every call is timed: the pause the caller hears is broken down per stage
   (endpointing, transcription, LLM first token, TTS first audio) and reported
   as p50/p95 with `make latency`.
@@ -408,6 +411,62 @@ cleaning in `receptionist.py` (one question per turn, clock times spelled out),
 which needs text before it is spoken, and a per-stage latency breakdown. Two
 things realtime has that cascaded does not: server-side semantic turn detection,
 and `input_audio_noise_reduction` on the caller's microphone.
+
+## Hindi and Hinglish calls
+
+Set `CLINIC_LANGUAGES=en,hi` in `agent/.env` and patients can call in Hindi,
+Hinglish or English, switching mid-sentence. The default, `en`, is exactly the
+English agent evaluated above: same prompt, greeting, tool schemas and guards
+(pinned by `tests/test_english_unchanged.py`).
+
+```bash
+# agent/.env
+CLINIC_LANGUAGES=en,hi
+LLM_PROVIDER=openrouter      # translation and summary calls overrun Groq's free tier
+OPENROUTER_HOST=cerebras
+```
+
+What changes with Hindi on:
+
+- **Hearing:** Deepgram nova-3 in `multi` mode, which transcribes Hindi-English
+  code-switching within a sentence.
+- **Replying:** `agent/language.py` classifies each caller turn from its text
+  (Devanagari or Roman-script Hindi counts as Hindi) and a per-turn note tells
+  the model which language to answer in. It switches only on a turn of three or
+  more words, so "appointment" or a phone number never flips it. The greeting is
+  Hindi first and offers English (`agent/audio/greeting_hi.wav`).
+- **Other languages:** a caller speaking Tamil, Bengali or another Indic language
+  gets one fixed line in Hindi and English. A reply in a script nobody on the team
+  can check is never spoken. More languages wait for a native-speaker reviewer
+  ([#7](https://github.com/ishanavasthi/clinicflow/issues/7)).
+- **Guardrails, unchanged in strength:** everything the code checks stays
+  canonical (English department names, ASCII digits, Latin-script names) and only
+  speech is Hindi. In a Hindi turn the slot guard reads Hindi times (`10 बजे`,
+  `साढ़े नौ`, Devanagari digits) and checks every time, not just those near an
+  English offer word. Consent recognises Hindi refusals and hedges (`नहीं`,
+  `रुकिए`, `शायद`, `या`) and ordinals (`पहला`, `दूसरा`). Slot times reach the model
+  as a ready Hindi label (`शनिवार, 18 जुलाई, सुबह 9:30 बजे`), so it never translates
+  a time itself. Hindi department names route to the same Emergency stop.
+  Speech-to-speech mode is refused with Hindi on, because its replies would skip
+  these checks.
+- **For staff:** the live transcript shows an English translation under each
+  Hindi line, and every call ends with an English doctor summary: complaint,
+  duration and key answers from the model; name, booking, routing and red flag
+  from the clinic system; and the patient's own words, kept only if they appear
+  verbatim in what the caller said.
+
+Not done yet: a listening test of Hindi voices (Rumik mulberry ships; muga and
+Cartesia are the alternatives) with their latency, and a second Indian language.
+
+**Evaluated** with Hindi versions of S01 (booking), S03 (corrected name and phone,
+in Roman Hinglish) and S13 (chest pain mid-intake), plus a Tamil caller and the
+English S01/S13 on a Hindi-enabled clinic: 6 cases × 5 trials through the same
+harness, agent model and judge as the English suite, with the shipped policy
+(`make eval-hi`). The final run passed **30/30 with zero critical failures**, for
+$0.23. The first run passed 25/30, also with zero critical failures: the Tamil
+case lost points on clarity until the fixed line invited the caller to continue
+in Hindi or English. Details and both runs:
+[docs/evidence/multilingual](docs/evidence/multilingual/README.md).
 
 ## Measuring latency
 
