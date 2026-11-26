@@ -558,7 +558,8 @@ class Receptionist(Agent):
             return self.policy["no_slots"].format(department=department)
         hindi = self.state.language == "hi"
         lines = [
-            f"{i + 1}. {s['doctor']} at {format_slot_time_hi(s['start']) if hindi else s['when']}"
+            f"{i + 1}. {s['doctor']}, {format_slot_time_hi(s['start'])}" if hindi
+            else f"{i + 1}. {s['doctor']} at {s['when']}"
             for i, s in enumerate(slots)
         ]
         return (
