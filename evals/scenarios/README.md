@@ -17,3 +17,24 @@ asks for the real times) and open-ended symptom prompts such as "tell me a
 bit about your knee pain". v1 left those turns unanswered, which ended booking
 calls early and failed them for a simulator gap rather than an agent fault.
 Every version compared under v2 was re-run under v2.
+
+## Multilingual split (issue #6)
+
+`HI*`, `XL01` and `EN*` form a separate `multilingual` split, so the development
+and holdout suite hashes are unchanged. Each case runs the agent with
+`clinic_languages` (`en,hi`), the Hindi greeting, and the per-turn language note.
+
+| Case | Mirrors | Caller speaks | Checks |
+|---|---|---|---|
+| HI01 | S01 | Hindi in Devanagari | booking, consent, Hindi slot label |
+| HI03 | S03 | Roman Hinglish | corrected name and phone, one patient record |
+| HI13 | S13 | Hindi | chest pain mid-intake goes to Emergency, no booking |
+| XL01 | (new) | Tamil | no Tamil reply, no booking; the fixed Hindi/English line |
+| EN01 | S01 | English | English booking on a Hindi-enabled clinic |
+| EN13 | S13 | English | English emergency on a Hindi-enabled clinic |
+
+`patient` facts stay canonical (Latin names, digits, English symptoms) because
+the database is scored against them; `spoken` holds the Hindi spellings the
+patient says. `alphabet` is `deva` (Devanagari) or `latn` (Roman). The Tamil line is fixed text
+("Hello, I need to see a doctor."); no case is judged by ear. Rule patterns
+avoid regex word boundaries next to Hindi text.

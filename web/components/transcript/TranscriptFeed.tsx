@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { useTranscriptions } from "@livekit/components-react";
-import { useCallStore } from "@/stores/callStore";
+import { translationKey, useCallStore } from "@/stores/callStore";
 
 /** Split a leading Muga tone tag like "[happy] " off the agent's text. */
 function splitTone(text: string): { tone: string | null; body: string } {
@@ -15,6 +15,7 @@ function splitTone(text: string): { tone: string | null; body: string } {
 export function TranscriptFeed() {
   const transcriptions = useTranscriptions();
   const callerIdentity = useCallStore((s) => s.callerIdentity);
+  const translations = useCallStore((s) => s.translations);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,6 +50,8 @@ export function TranscriptFeed() {
         const { tone, body } = isCaller
           ? { tone: null, body: t.text }
           : splitTone(t.text);
+        // Hindi calls: the English line arrives a moment after the exchange.
+        const english = translations[translationKey(t.text)];
         return (
           <motion.div
             key={i}
@@ -79,6 +82,13 @@ export function TranscriptFeed() {
                 <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse bg-primary" />
               )}
             </div>
+            {english && english !== body && (
+              <p
+                className={`max-w-[85%] px-1 text-xs leading-snug text-muted-foreground ${isCaller ? "text-right" : ""}`}
+              >
+                {english}
+              </p>
+            )}
           </motion.div>
         );
       })}

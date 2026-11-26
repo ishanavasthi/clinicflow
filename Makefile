@@ -2,7 +2,7 @@
 # For the full stack, run each in its own terminal: `make server`, `make agent`,
 # `make web`. Use `make reset` before a demo for a clean database.
 
-.PHONY: help setup seed reset demo server agent web console verify latency test eval eval-report improve apply compare
+.PHONY: help setup seed reset demo server agent web console verify latency test eval eval-hi eval-report improve apply compare
 
 help:
 	@echo "ClinicFlow commands:"
@@ -19,6 +19,7 @@ help:
 	@echo "Evaluation (see README 'Assignment results'):"
 	@echo "  make test         Offline tests: scheduling, backend, scorer, loop tooling (no keys)"
 	@echo "  make eval         Live development suite: OUT=runs/x [POLICY=agent/policies/...] [REPEAT=5]"
+	@echo "  make eval-hi      Live multilingual (Hindi) split with the shipped policy: OUT=runs/x [REPEAT=5]"
 	@echo "  make eval-report  Rebuild the README results tables from docs/evidence"
 	@echo "  make improve      Generate a proposal: SUMMARY=... POLICY=... PROPOSAL=..."
 	@echo "  make apply        Apply it: PROPOSAL=... POLICY=... SUMMARY=... CANDIDATE=..."
@@ -85,6 +86,13 @@ eval:
 	@test -n "$(OUT)" || (echo "set OUT=runs/<name>"; exit 1)
 	CLINICFLOW_POLICY_PATH=$(or $(POLICY),agent/policies/baseline.json) \
 		$(PY) -m evals.runner --suite $(SUITE) --repeat $(REPEAT) --output $(OUT) --budget-usd $(BUDGET)
+
+# Hindi, Hinglish and the unsupported-language case, with the policy the live
+# agent ships (candidate-008). See evals/scenarios/README.md.
+eval-hi:
+	@test -n "$(OUT)" || (echo "set OUT=runs/<name>"; exit 1)
+	CLINICFLOW_POLICY_PATH=agent/policies/candidate-008.json \
+		$(PY) -m evals.runner --suite multilingual --repeat $(REPEAT) --output $(OUT) --budget-usd $(BUDGET)
 
 eval-report:
 	$(PY) -m evals.report Baseline=$(EVIDENCE)/sim-v2/baseline-dev.summary.json \

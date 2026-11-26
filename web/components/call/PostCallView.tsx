@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   CalendarClock,
   CircleCheck,
+  ClipboardList,
   ListTree,
   PlayCircle,
   Split,
@@ -16,13 +18,56 @@ import { IntakePanel } from "@/components/patient/IntakePanel";
 import { AppointmentPanel } from "@/components/appointments/AppointmentPanel";
 import { DepartmentFlow } from "@/components/routing/DepartmentFlow";
 import { TimelinePanel } from "@/components/timeline/TimelinePanel";
+import { DoctorSummaryCard } from "@/components/summary/DoctorSummaryCard";
+import { fetchCall } from "@/lib/api";
 import { useCallStore } from "@/stores/callStore";
+
+// The doctor summary is written after hang-up, when this page has already left
+// the room, so it is read from the saved call record instead.
+const SUMMARY_POLL_MS = 2500;
+const SUMMARY_POLL_TRIES = 8;
+
+function useSavedDoctorSummary(): void {
+  const callId = useCallStore((s) => s.callId);
+  const doctorSummary = useCallStore((s) => s.doctorSummary);
+  useSavedDoctorSummary();
+  const setDoctorSummary = useCallStore((s) => s.setDoctorSummary);
+
+  useEffect(() => {
+    if (callId == null || doctorSummary) return;
+    let cancelled = false;
+    let tries = 0;
+    const poll = async () => {
+      tries += 1;
+      try {
+        const call = await fetchCall(callId);
+        if (cancelled) return;
+        if (call.summary?.doctor_summary) {
+          setDoctorSummary(call.summary.doctor_summary);
+          return;
+        }
+        // Saved without a language: an English-only clinic, no summary coming.
+        if (call.status === "ended" && call.summary && !call.summary.language) return;
+      } catch {
+        // The server may still be writing the record; try again.
+      }
+      if (!cancelled && tries < SUMMARY_POLL_TRIES) timer = setTimeout(poll, SUMMARY_POLL_MS);
+    };
+    let timer = setTimeout(poll, SUMMARY_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [callId, doctorSummary, setDoctorSummary]);
+}
 
 /** The post-call summary. Panels read the store, so no live room is needed. */
 export function PostCallView() {
   const intake = useCallStore((s) => s.intake);
   const booking = useCallStore((s) => s.booking);
   const routing = useCallStore((s) => s.routing);
+  const doctorSummary = useCallStore((s) => s.doctorSummary);
+  useSavedDoctorSummary();
 
   return (
     <motion.div
@@ -59,6 +104,11 @@ export function PostCallView() {
             )}
           </ul>
         </Panel>
+        {doctorSummary && (
+          <Panel label="Doctor summary" icon={<ClipboardList className="h-3.5 w-3.5" />}>
+            <DoctorSummaryCard summary={doctorSummary} />
+          </Panel>
+        )}
       </div>
 
       <div className="flex flex-col gap-4 lg:col-span-4">

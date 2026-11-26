@@ -15,10 +15,22 @@ A patient answers from three sources, in order:
 
 Patient policies know only synthetic facts and intent. They never see the
 evaluator's expectations.
+
+Multilingual cases (`clinic_languages` set) also recognise Hindi and Hinglish
+questions, whatever language the agent used, and answer in the scenario's
+`language` and `alphabet`, from the Hindi spellings in `spoken`. The canonical
+`patient` facts stay in Latin letters and digits, because scoring compares the
+database against them. Patterns avoid regex word boundaries next to Hindi:
+Python's word characters do not cover Devanagari vowel signs.
 """
 from __future__ import annotations
 
 import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
+from tools.appointments import format_slot_time_hi  # noqa: E402
 
 
 class PatientPolicyError(RuntimeError):
@@ -29,6 +41,38 @@ SLOT_OFFER = re.compile(
     r"\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b|\b\d{1,2}:\d{2}\b",
     re.IGNORECASE,
 )
+
+HI_WEEKDAYS = "सोमवार|मंगलवार|बुधवार|गुरुवार|शुक्रवार|शनिवार|रविवार"
+HI_SLOT_OFFER = re.compile(HI_WEEKDAYS)
+
+HI_FACT_QUESTIONS = {
+    "name": re.compile(r"नाम|naam", re.IGNORECASE),
+    "age": re.compile(r"उम्र|उमर|आयु|कितने साल|umar|umr|kitne saal", re.IGNORECASE),
+    "phone": re.compile(r"फ़ोन|फोन|मोबाइल|नंबर|नम्बर|number|phone|mobile", re.IGNORECASE),
+    "symptoms": re.compile(r"तकलीफ|परेशानी|समस्या|लक्षण|दिक्कत|बीमारी|क्या हुआ|takleef|taklif|"
+                           r"pareshani|samasya|dikkat|kya hua", re.IGNORECASE),
+    "department": re.compile(r"विभाग|vibhag", re.IGNORECASE),
+    "timing": re.compile(r"किस दिन|कौन सा दिन|कौन से दिन|किस समय|कब आना|कब आ|kis din|kab aana|kis samay",
+                         re.IGNORECASE),
+}
+HI_ASKING = re.compile(r"बताइए|बताइये|बताएं|बताएँ|दीजिए|दीजिये|bataiye|batayein|dijiye", re.IGNORECASE)
+HI_REPEAT_REQUEST = re.compile(r"दोबारा|दुबारा|फिर से|dobara|phir se", re.IGNORECASE)
+HI_CONFIRMATION = re.compile(r"पुष्टि|सही है|सही\?|ठीक है\?|sahi hai|sahi\?", re.IGNORECASE)
+
+HI_ANSWERS = {
+    "deva": {
+        "name": "मेरा नाम {} है।", "age": "मेरी उम्र {} साल है।", "phone": "मेरा नंबर {} है।",
+        "symptoms": "मुझे {} है।", "department": "मुझे {} में दिखाना है।", "timing": "{}",
+        "yes": "हाँ, सही है।", "timing_default": "कोई भी दिन चलेगा। उपलब्ध समय बता दीजिए।",
+        "choice": "पहला वाला, {when}, book kar dijiye.",
+    },
+    "latn": {
+        "name": "Mera naam {} hai.", "age": "Meri umar {} saal hai.", "phone": "Mera number {} hai.",
+        "symptoms": "Mujhe {} hai.", "department": "Mujhe {} mein dikhana hai.", "timing": "{}",
+        "yes": "Haan, sahi hai.", "timing_default": "Koi bhi din chalega. Available time bata dijiye.",
+        "choice": "Pehla wala, {clock} wala, book kar dijiye.",
+    },
+}
 
 FACT_QUESTIONS = {
     "name": re.compile(r"\bname\b", re.IGNORECASE),
@@ -66,27 +110,56 @@ class ScriptedPatient:
     def __init__(self, scenario: dict):
         self.policy = scenario.get("policy") or {}
         self.facts = {k: str(v) for k, v in (scenario.get("patient") or {}).items() if str(v or "").strip()}
-        self.facts.setdefault("timing", DEFAULT_TIMING)
+        # Multilingual cases only; English cases behave exactly as before.
+        self.multilingual = bool(scenario.get("clinic_languages"))
+        self.language = scenario.get("language", "en")
+        self.hindi = self.language == "hi"
+        self.answers = HI_ANSWERS[scenario.get("alphabet", "deva")] if self.hindi else None
+        self.spoken = {k: str(v) for k, v in (scenario.get("spoken") or {}).items()}
+        self.facts.setdefault("timing", self.answers["timing_default"] if self.hindi else DEFAULT_TIMING)
         self.used: set[str] = set()
         self.slot_choices = 0
         self.last_reply: str | None = None
         self.unmatched: str | None = None
 
-    def _fact_reply(self, text: str) -> str | None:
-        if SLOT_OFFER.search(text) or "?" not in text and not re.search(r"\b(?:please|share|provide|tell me)\b", text, re.IGNORECASE):
-            return None
+    def _asked(self, text: str) -> list[str]:
         asked = [field for field, pattern in FACT_QUESTIONS.items() if field in self.facts and pattern.search(text)]
+        if self.multilingual:
+            asked += [field for field, pattern in HI_FACT_QUESTIONS.items()
+                      if field in self.facts and field not in asked and pattern.search(text)]
+            asked = [field for field in FACT_QUESTIONS if field in asked]  # stable order
+        return asked
+
+    def _fact_reply(self, text: str) -> str | None:
+        offer = SLOT_OFFER.search(text) or (self.multilingual and HI_SLOT_OFFER.search(text))
+        asking = "?" in text or re.search(r"\b(?:please|share|provide|tell me)\b", text, re.IGNORECASE) or (
+            self.multilingual and HI_ASKING.search(text))
+        if offer or not asking:
+            return None
+        asked = self._asked(text)
         if not asked:
             return None
-        if CONFIRMATION.search(text) and "timing" not in asked and all(self._read_back(text, field) for field in asked):
-            return "Yes, that's right."
+        confirming = CONFIRMATION.search(text) or (self.multilingual and HI_CONFIRMATION.search(text))
+        if confirming and "timing" not in asked and all(self._read_back(text, field) for field in asked):
+            return self.answers["yes"] if self.hindi else "Yes, that's right."
+        if self.hindi:
+            return " ".join(self.answers[field].format(self.spoken.get(field, self.facts[field])) for field in asked)
         return " ".join(FACT_ANSWERS[field].format(self.facts[field]) for field in asked)
 
     def _read_back(self, text: str, field: str) -> bool:
         value = self.facts[field]
         if field == "phone":
             return len(_digits(value)) >= 7 and _digits(value) in _digits(text)
-        return value.casefold() in text.casefold()
+        spoken = self.spoken.get(field)
+        return value.casefold() in text.casefold() or bool(spoken and spoken in text)
+
+    def _choice(self, slot: dict) -> str:
+        if not self.hindi:
+            return f"The first time, {slot['when']}, please. Please book it."
+        from datetime import datetime
+        start = datetime.fromisoformat(slot["start"])
+        clock = f"{start.hour % 12 or 12}:{start.minute:02d}"
+        return self.answers["choice"].format(when=format_slot_time_hi(slot["start"]), clock=clock)
 
     def reply(self, assistant_text: str, offered_slots: list[dict]) -> str | None:
         answer = self._reply(assistant_text, offered_slots)
@@ -99,7 +172,9 @@ class ScriptedPatient:
         if stop and re.search(stop, assistant_text, re.IGNORECASE):
             return None
         # A caller asked to repeat themselves does, once per request.
-        if REPEAT_REQUEST.search(assistant_text) and self.last_reply:
+        repeat = REPEAT_REQUEST.search(assistant_text) or (
+            self.multilingual and HI_REPEAT_REQUEST.search(assistant_text))
+        if repeat and self.last_reply:
             return self.last_reply
         fact = self._fact_reply(assistant_text)
         if fact is not None:
@@ -121,7 +196,7 @@ class ScriptedPatient:
                     continue
                 self.used.add(rule_id)
                 self.slot_choices += 1
-                return f"The first time, {offered_slots[0]['when']}, please. Please book it."
+                return self._choice(offered_slots[0])
             self.used.add(rule_id)
             if answer is None:
                 return None

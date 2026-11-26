@@ -36,6 +36,8 @@ from livekit.plugins import deepgram, silero
 
 import llm as llm_provider
 import realtime
+import summary as doctor_notes
+from language import enabled_languages
 import turn_clock
 import turn_latency
 from call_log import build_record, summary_of, write_record
@@ -74,7 +76,13 @@ def _voice_mode() -> str:
 
 def _validate_pipeline_env(mode: str) -> None:
     """Fail at startup with the variable name, not mid-call with a 401."""
+    languages = enabled_languages()  # raises on an unsupported language code
     if mode == "realtime":
+        if "hi" in languages:
+            raise RuntimeError(
+                "VOICE_MODE=realtime cannot be used with CLINIC_LANGUAGES=en,hi: "
+                "realtime replies skip the Hindi guards. Use VOICE_MODE=cascaded."
+            )
         realtime.api_key()
         return
     missing = [
@@ -102,9 +110,16 @@ def _build_session(mode: str, vad: object) -> AgentSession:
             llm=realtime.build_realtime(),
             max_tool_steps=4,
         )
+    # Hindi calls: nova-3 "multi" transcribes Hindi-English code-switching
+    # within a sentence. English-only clinics keep today's English model.
+    stt = (
+        deepgram.STT(model=STT_MODEL, language="multi")
+        if "hi" in enabled_languages()
+        else deepgram.STT(model=STT_MODEL)
+    )
     return AgentSession(
         vad=vad,
-        stt=deepgram.STT(model=STT_MODEL),
+        stt=stt,
         llm=llm_provider.build_llm(),
         tts=build_tts(),
         # Be more patient so the agent waits for the caller to finish instead of
@@ -124,13 +139,18 @@ def _pipeline_config(mode: str) -> dict:
     by configuration instead of pooling two different pipelines into one p95."""
     if mode == "realtime":
         return {"voice_mode": mode, "llm": realtime.resolve_config().as_dict()}
-    return {
+    config = {
         "voice_mode": mode,
         "llm": llm_provider.resolve_config().as_dict(),
         "stt": {"provider": "deepgram", "model": STT_MODEL},
         "tts": {"provider": "rumik", "model": "mulberry"},
         "min_endpointing_delay": 0.8,
     }
+    if "hi" in enabled_languages():
+        # Recorded so `make latency` groups Hindi calls separately.
+        config["stt"]["language"] = "multi"
+        config["languages"] = ["en", "hi"]
+    return config
 
 
 def error_fallback(session: AgentSession, clock=time.monotonic):
@@ -205,11 +225,52 @@ async def entrypoint(ctx: JobContext) -> None:
 
     session.on("error", error_fallback(session))
 
+    # Hindi calls: translate each exchange into English for the dashboard, in
+    # the background, never on the caller's path. Off for English-only clinics.
+    hindi = "hi" in enabled_languages()
+    translation_tasks: set[asyncio.Task] = set()
+    if hindi:
+        translate_chat = doctor_notes.make_chat(timeout=6.0)
+        # The caller line waiting for its translation; sent with the first reply
+        # after it. Later replies in the same turn (speech, a tool call, more
+        # speech) are translated on their own.
+        last_caller = {"text": ""}
+
+        async def _translate(caller_text: str, reply_text: str) -> None:
+            result = await doctor_notes.translate_exchange(caller_text, reply_text, translate_chat)
+            if not result:
+                return
+            lines = [("assistant", reply_text, result["assistant"])]
+            if caller_text:
+                lines.insert(0, ("user", caller_text, result["user"]))
+            for role, text, text_en in lines:
+                entry = {"role": role, "text": text, "text_en": text_en}
+                state.translations.append(entry)
+                await publisher.publish("translation", entry)
+
+        def _on_item_added(event: object) -> None:
+            item = getattr(event, "item", None)
+            role = getattr(item, "role", None)
+            text = (getattr(item, "text_content", None) or "").strip()
+            if not text:
+                return
+            if role == "user":
+                last_caller["text"] = text
+                return
+            if role != "assistant":
+                return
+            caller_text, last_caller["text"] = last_caller["text"], ""
+            task = asyncio.create_task(_translate(caller_text, text))
+            translation_tasks.add(task)
+            task.add_done_callback(translation_tasks.discard)
+
+        session.on("conversation_item_added", _on_item_added)
+
     # Persist the call record exactly once. Runs the moment the caller hangs up
     # (see below), not only on worker shutdown, so the history view has the
     # transcript, summary, and routing right away. The shutdown callback is a
     # fallback for a disconnect we never saw (e.g. a dropped connection).
-    finalized = {"done": False}
+    finalized = {"done": False, "task": None}
 
     async def finalize() -> None:
         if finalized["done"]:
@@ -217,6 +278,11 @@ async def entrypoint(ctx: JobContext) -> None:
         finalized["done"] = True
         # Build the call record once, then archive it to runs/calls/ and store it
         # on the call in SQLite so the history view is self-describing.
+        if hindi and translation_tasks:
+            # Give in-flight translations a moment; a late one is simply dropped.
+            _done, pending = await asyncio.wait(set(translation_tasks), timeout=2.0)
+            for task in pending:
+                task.cancel()
         record = build_record(
             state,
             session.history,
@@ -225,6 +291,20 @@ async def entrypoint(ctx: JobContext) -> None:
             config=_pipeline_config(mode),
             clock_rows=clock.rows(),
         )
+        if hindi:
+            # Bounded (summary_for_record), so the record below is always written.
+            try:
+                chat = doctor_notes.make_chat(timeout=doctor_notes.SUMMARY_TIMEOUT_S)
+                state.doctor_summary = await doctor_notes.summary_for_record(
+                    record["transcript"], state, chat)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("doctor summary skipped: %s", exc)
+                state.doctor_summary = doctor_notes.unavailable_summary(state)
+            record["doctor_summary"] = state.doctor_summary
+            try:
+                await publisher.publish("doctor_summary", state.doctor_summary)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("could not publish doctor summary: %s", exc)
         # Print what the caller waited on this call. `make latency` aggregates the
         # same numbers across every archived call.
         summary = record["latency"]["summary"]
@@ -255,10 +335,19 @@ async def entrypoint(ctx: JobContext) -> None:
     def _on_participant_disconnected(_participant: object) -> None:
         # The caller left; persist now instead of waiting for the job to be
         # reclaimed (which can be 20s+ later).
-        asyncio.create_task(finalize())
+        if finalized["task"] is None:
+            finalized["task"] = asyncio.create_task(finalize())
+
+    async def _on_shutdown() -> None:
+        # If the hang-up already started finalize (which may be waiting on the
+        # doctor summary), wait for it so shutdown never drops the record.
+        if finalized["task"] is not None:
+            await finalized["task"]
+        else:
+            await finalize()
 
     ctx.room.on("participant_disconnected", _on_participant_disconnected)
-    ctx.add_shutdown_callback(finalize)
+    ctx.add_shutdown_callback(_on_shutdown)
 
     await session.start(room=ctx.room, agent=Receptionist(state, server, publisher))
     await publisher.publish("status", {"status": "active", "call_id": state.call_id})

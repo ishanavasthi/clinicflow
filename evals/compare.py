@@ -238,7 +238,7 @@ def main() -> int:
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--scenarios-dir", default="evals/scenarios")
-    parser.add_argument("--split", default="development", choices=("development", "holdout"))
+    parser.add_argument("--split", default="development", choices=("development", "holdout", "multilingual"))
     parser.add_argument("--min-trials", type=int, default=3)
     parser.add_argument("--final", action="store_true")
     args = parser.parse_args()

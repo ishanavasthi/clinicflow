@@ -8,7 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
 import llm  # noqa: E402
-from main import FALLBACK_LINE, error_fallback  # noqa: E402
+from main import FALLBACK_LINE, _pipeline_config, _validate_pipeline_env, error_fallback  # noqa: E402
 
 LLM_VARS = ("LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY", "LLM_REASONING_EFFORT",
             "OPENROUTER_HOST", "OPENROUTER_FALLBACKS", "OPENROUTER_API_KEY", "GROQ_API_KEY")
@@ -79,6 +79,30 @@ class ErrorFallbackTests(unittest.TestCase):
         self.now += 10
         self.on_error(self.event(recoverable=False))
         self.assertEqual(self.session.say.call_count, 2)
+
+
+
+class LanguageConfigTests(unittest.TestCase):
+    def test_realtime_mode_is_refused_with_hindi(self):
+        with mock.patch.dict(os.environ, {"CLINIC_LANGUAGES": "en,hi", "OPENAI_API_KEY": "x"}):
+            with self.assertRaises(RuntimeError) as caught:
+                _validate_pipeline_env("realtime")
+        self.assertIn("CLINIC_LANGUAGES", str(caught.exception))
+
+    def test_unknown_language_code_fails_at_startup(self):
+        with mock.patch.dict(os.environ, {"CLINIC_LANGUAGES": "en,ta", "OPENAI_API_KEY": "x"}):
+            with self.assertRaises(RuntimeError):
+                _validate_pipeline_env("realtime")
+
+    def test_pipeline_config_records_hindi_only_when_enabled(self):
+        with env(LLM_PROVIDER="groq"), mock.patch.dict(os.environ, {"CLINIC_LANGUAGES": ""}):
+            english = _pipeline_config("cascaded")
+        self.assertEqual(english["stt"], {"provider": "deepgram", "model": "nova-3"})
+        self.assertNotIn("languages", english)
+        with env(LLM_PROVIDER="groq"), mock.patch.dict(os.environ, {"CLINIC_LANGUAGES": "en,hi"}):
+            hindi = _pipeline_config("cascaded")
+        self.assertEqual(hindi["stt"]["language"], "multi")
+        self.assertEqual(hindi["languages"], ["en", "hi"])
 
 
 if __name__ == "__main__":

@@ -79,7 +79,7 @@ def build_record(
     stored alongside the timings so a later comparison groups by configuration
     instead of pooling two different pipelines into one percentile.
     """
-    return {
+    record = {
         "call_id": state.call_id,
         "room": state.room_name,
         "config": config or {},
@@ -97,6 +97,25 @@ def build_record(
         "transcript": _transcript(chat_ctx),
         "latency": _latency(chat_ctx, clock_rows),
     }
+    if "hi" in state.languages:
+        # Hindi-enabled clinics only, so English records stay exactly as before.
+        record["language"] = state.language
+        _attach_translations(record["transcript"], state.translations)
+        record["doctor_summary"] = state.doctor_summary
+    return record
+
+
+def _squash(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _attach_translations(transcript: list[dict], translations: list[dict]) -> None:
+    """Put each English translation on the transcript line it translates."""
+    english = {(t.get("role"), _squash(t.get("text", ""))): t.get("text_en") for t in translations}
+    for line in transcript:
+        text_en = english.get((line["role"], _squash(line["text"])))
+        if text_en:
+            line["text_en"] = text_en
 
 
 def write_record(record: dict) -> str:
@@ -114,7 +133,7 @@ def write_record(record: dict) -> str:
 
 def summary_of(record: dict) -> dict:
     """A compact summary of a call record for the history list."""
-    return {
+    summary = {
         "name": record["patient"]["name"],
         "age": record["patient"]["age"],
         "phone": record["patient"]["phone"],
@@ -122,3 +141,7 @@ def summary_of(record: dict) -> dict:
         "booking": record["booking"],
         "routed_department": record["routed_department"],
     }
+    for key in ("language", "doctor_summary"):
+        if key in record:
+            summary[key] = record[key]
+    return summary

@@ -78,5 +78,32 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(run["events"][0]["kind"], "error")
 
 
+    def test_hindi_case_runs_with_the_hindi_greeting_and_books_on_a_hindi_choice(self):
+        scenario = _scenario()
+        scenario.update({"clinic_languages": "en,hi", "language": "hi"})
+        scenario["script"][-1] = {"user": "पहला वाला, book kar dijiye", "name": "book_appointment",
+                                  "arguments": {"option": 1}}
+        run = asyncio.run(run_scenario(scenario, {}, mode="scripted"))
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(len(run["final_state"]["appointments"]), 1)
+        self.assertEqual(run["events"][0]["kind"], "assistant")
+        self.assertTrue(run["events"][0]["text"].startswith("नमस्ते"))
+        self.assertEqual(run["manifest"]["clinic_languages"], "en,hi")
+        self.assertEqual(run["manifest"]["evaluator_version"], "rubric-2-multilingual")
+
+    def test_hindi_refusal_does_not_book(self):
+        scenario = _scenario()
+        scenario.update({"clinic_languages": "en,hi", "language": "hi"})
+        scenario["script"][-1] = {"user": "नहीं, अभी रुकिए", "name": "book_appointment", "arguments": {"option": 1}}
+        run = asyncio.run(run_scenario(scenario, {}, mode="scripted"))
+        self.assertEqual(run["final_state"]["appointments"], [])
+
+    def test_english_manifest_is_unchanged(self):
+        run = asyncio.run(run_scenario(_scenario(), {}, mode="scripted"))
+        self.assertNotIn("clinic_languages", run["manifest"])
+        self.assertEqual(run["manifest"]["evaluator_version"], "rubric-1")
+        self.assertTrue(run["events"][0]["text"].startswith("Hi, this is Riya"))
+
+
 if __name__ == "__main__":
     unittest.main()
