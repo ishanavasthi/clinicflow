@@ -36,6 +36,7 @@ from livekit.plugins import deepgram, silero
 
 import llm as llm_provider
 import realtime
+import summary as doctor_notes
 from language import enabled_languages
 import turn_clock
 import turn_latency
@@ -224,6 +225,42 @@ async def entrypoint(ctx: JobContext) -> None:
 
     session.on("error", error_fallback(session))
 
+    # Hindi calls: translate each exchange into English for the dashboard, in
+    # the background, never on the caller's path. Off for English-only clinics.
+    hindi = "hi" in enabled_languages()
+    translation_tasks: set[asyncio.Task] = set()
+    if hindi:
+        translate_chat = doctor_notes.make_chat(timeout=6.0)
+        last_caller = {"text": ""}
+
+        async def _translate(caller_text: str, reply_text: str) -> None:
+            result = await doctor_notes.translate_exchange(caller_text, reply_text, translate_chat)
+            if not result:
+                return
+            for role, text, text_en in (("user", caller_text, result["user"]),
+                                        ("assistant", reply_text, result["assistant"])):
+                entry = {"role": role, "text": text, "text_en": text_en}
+                state.translations.append(entry)
+                await publisher.publish("translation", entry)
+
+        def _on_item_added(event: object) -> None:
+            item = getattr(event, "item", None)
+            role = getattr(item, "role", None)
+            text = (getattr(item, "text_content", None) or "").strip()
+            if not text:
+                return
+            if role == "user":
+                last_caller["text"] = text
+                return
+            if role != "assistant" or not last_caller["text"]:
+                return
+            caller_text, last_caller["text"] = last_caller["text"], ""
+            task = asyncio.create_task(_translate(caller_text, text))
+            translation_tasks.add(task)
+            task.add_done_callback(translation_tasks.discard)
+
+        session.on("conversation_item_added", _on_item_added)
+
     # Persist the call record exactly once. Runs the moment the caller hangs up
     # (see below), not only on worker shutdown, so the history view has the
     # transcript, summary, and routing right away. The shutdown callback is a
@@ -236,6 +273,11 @@ async def entrypoint(ctx: JobContext) -> None:
         finalized["done"] = True
         # Build the call record once, then archive it to runs/calls/ and store it
         # on the call in SQLite so the history view is self-describing.
+        if hindi and translation_tasks:
+            # Give in-flight translations a moment; a late one is simply dropped.
+            _done, pending = await asyncio.wait(set(translation_tasks), timeout=2.0)
+            for task in pending:
+                task.cancel()
         record = build_record(
             state,
             session.history,
@@ -244,6 +286,20 @@ async def entrypoint(ctx: JobContext) -> None:
             config=_pipeline_config(mode),
             clock_rows=clock.rows(),
         )
+        if hindi:
+            # Bounded (summary_for_record), so the record below is always written.
+            try:
+                chat = doctor_notes.make_chat(timeout=doctor_notes.SUMMARY_TIMEOUT_S)
+                state.doctor_summary = await doctor_notes.summary_for_record(
+                    record["transcript"], state, chat)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("doctor summary skipped: %s", exc)
+                state.doctor_summary = doctor_notes.unavailable_summary(state)
+            record["doctor_summary"] = state.doctor_summary
+            try:
+                await publisher.publish("doctor_summary", state.doctor_summary)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("could not publish doctor summary: %s", exc)
         # Print what the caller waited on this call. `make latency` aggregates the
         # same numbers across every archived call.
         summary = record["latency"]["summary"]
