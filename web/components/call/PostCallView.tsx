@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import {
   CalendarClock,
   CircleCheck,
+  ClipboardList,
   ListTree,
   PlayCircle,
   Split,
@@ -16,6 +17,7 @@ import { IntakePanel } from "@/components/patient/IntakePanel";
 import { AppointmentPanel } from "@/components/appointments/AppointmentPanel";
 import { DepartmentFlow } from "@/components/routing/DepartmentFlow";
 import { TimelinePanel } from "@/components/timeline/TimelinePanel";
+import { DoctorSummaryCard } from "@/components/summary/DoctorSummaryCard";
 import { useCallStore } from "@/stores/callStore";
 
 /** The post-call summary. Panels read the store, so no live room is needed. */
@@ -23,6 +25,7 @@ export function PostCallView() {
   const intake = useCallStore((s) => s.intake);
   const booking = useCallStore((s) => s.booking);
   const routing = useCallStore((s) => s.routing);
+  const doctorSummary = useCallStore((s) => s.doctorSummary);
 
   return (
     <motion.div
@@ -59,6 +62,11 @@ export function PostCallView() {
             )}
           </ul>
         </Panel>
+        {doctorSummary && (
+          <Panel label="Doctor summary" icon={<ClipboardList className="h-3.5 w-3.5" />}>
+            <DoctorSummaryCard summary={doctorSummary} />
+          </Panel>
+        )}
       </div>
 
       <div className="flex flex-col gap-4 lg:col-span-4">

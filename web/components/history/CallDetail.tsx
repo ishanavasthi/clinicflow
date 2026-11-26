@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   CalendarCheck,
+  ClipboardList,
   Download,
   MessagesSquare,
   Split,
   UserRound,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DoctorSummaryCard, languageLabel } from "@/components/summary/DoctorSummaryCard";
 import { Panel } from "@/components/ui/Panel";
 import { fetchCall, mediaUrl } from "@/lib/api";
 import type { CallDetailData } from "@/lib/types";
@@ -48,6 +51,9 @@ export function CallDetail({
             {call.summary.name ?? "Unknown caller"} &middot;{" "}
             {new Date(call.started_at).toLocaleString()}
           </span>
+        )}
+        {call && languageLabel(call.summary.language) && (
+          <Badge variant="outline">{languageLabel(call.summary.language)}</Badge>
         )}
       </div>
 
@@ -91,6 +97,13 @@ export function CallDetail({
                       >
                         {m.text}
                       </div>
+                      {m.text_en && m.text_en !== m.text && (
+                        <p
+                          className={`max-w-[85%] px-1 text-xs leading-snug text-muted-foreground ${isCaller ? "text-right" : ""}`}
+                        >
+                          {m.text_en}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -100,6 +113,11 @@ export function CallDetail({
 
           {/* Patient + outcome + recording */}
           <div className="flex flex-col gap-4 lg:col-span-5">
+            {call.summary.doctor_summary && (
+              <Panel label="Doctor summary" icon={<ClipboardList className="h-3.5 w-3.5" />}>
+                <DoctorSummaryCard summary={call.summary.doctor_summary} />
+              </Panel>
+            )}
             <Panel label="Patient" icon={<UserRound className="h-3.5 w-3.5" />}>
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
                 <dt className="text-muted-foreground">Name</dt>

@@ -21,7 +21,9 @@ export type AgentStateType =
   | "faq"
   | "booking"
   | "routing"
-  | "timeline";
+  | "timeline"
+  | "translation"
+  | "doctor_summary";
 
 export interface AgentStateEvent<P = Record<string, unknown>> {
   type: AgentStateType;
@@ -72,6 +74,36 @@ export interface RoutingPayload {
   emergency: boolean;
 }
 
+/** Hindi calls: the English translation of one spoken line (agent/summary.py). */
+export interface TranslationPayload {
+  role: "user" | "assistant";
+  text: string;
+  text_en: string;
+}
+
+/**
+ * Hindi calls: the English note for the doctor, written at hang-up. The model
+ * writes the complaint fields; `structured` comes from the clinic system only,
+ * and `patient_words` is kept only if the caller said it verbatim.
+ */
+export interface DoctorSummary {
+  status: "ok" | "unavailable";
+  chief_complaint: string | null;
+  duration: string | null;
+  key_answers: string[];
+  patient_words: string | null;
+  structured: {
+    name: string | null;
+    age: string | null;
+    phone: string | null;
+    symptoms: string | null;
+    booking: { doctor: string; department: string; when: string } | null;
+    routed_department: string | null;
+    red_flag: boolean;
+    language: string;
+  };
+}
+
 export interface FaqPayload {
   topic: string;
   raw?: string;
@@ -112,6 +144,9 @@ export interface CallSummaryData {
   symptom: string | null;
   booking: BookedAppointment | null;
   routed_department: string | null;
+  /** Hindi-enabled clinics only. */
+  language?: string;
+  doctor_summary?: DoctorSummary | null;
 }
 
 export interface CallListItem {
@@ -135,5 +170,5 @@ export interface CallDetailData {
   routed_department: string | null;
   recording_url: string | null;
   summary: CallSummaryData;
-  transcript: { role: "user" | "assistant"; text: string }[];
+  transcript: { role: "user" | "assistant"; text: string; text_en?: string }[];
 }

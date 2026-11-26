@@ -12,10 +12,12 @@ import type {
   BookedAppointment,
   BookingPayload,
   CallStatus,
+  DoctorSummary,
   IntakeUpdatePayload,
   RoutingPayload,
   SlotOption,
   StatusPayload,
+  TranslationPayload,
 } from "@/lib/types";
 
 export interface TimelineEntry {
@@ -46,6 +48,9 @@ interface CallState {
   booking: BookedAppointment | null;
   routing: RoutingPayload | null;
   timeline: TimelineEntry[];
+  /** Hindi calls: English for each spoken line, keyed by its trimmed text. */
+  translations: Record<string, string>;
+  doctorSummary: DoctorSummary | null;
 
   // Actions
   setStatus: (status: CallStatus) => void;
@@ -69,6 +74,8 @@ const INITIAL_DATA = {
   booking: null as BookedAppointment | null,
   routing: null as RoutingPayload | null,
   timeline: [] as TimelineEntry[],
+  translations: {} as Record<string, string>,
+  doctorSummary: null as DoctorSummary | null,
 };
 
 export const useCallStore = create<CallState>((set) => ({
@@ -231,7 +238,37 @@ function reduceEvent(
       };
     }
 
+    case "translation": {
+      const payload = event.payload as unknown as TranslationPayload;
+      return {
+        translations: {
+          ...state.translations,
+          [translationKey(payload.text)]: payload.text_en,
+        },
+      };
+    }
+
+    case "doctor_summary": {
+      const summary = event.payload as unknown as DoctorSummary;
+      return {
+        doctorSummary: summary,
+        timeline: pushTimeline(state, {
+          type: "doctor_summary",
+          ts,
+          label:
+            summary.status === "ok"
+              ? "Doctor summary ready"
+              : "Doctor summary unavailable",
+        }),
+      };
+    }
+
     default:
       return {};
   }
+}
+
+/** How a spoken line is matched to its translation: whitespace-insensitive. */
+export function translationKey(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }

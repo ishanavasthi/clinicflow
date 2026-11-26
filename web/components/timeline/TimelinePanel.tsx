@@ -3,7 +3,9 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   CalendarCheck,
+  ClipboardList,
   HelpCircle,
+  Languages,
   PhoneOff,
   Split,
   UserPlus,
@@ -19,6 +21,8 @@ const ICON: Record<AgentStateEvent["type"], LucideIcon> = {
   routing: Split,
   faq: HelpCircle,
   timeline: HelpCircle,
+  translation: Languages,
+  doctor_summary: ClipboardList,
 };
 
 function dotColor(entry: TimelineEntry): string {
