@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 _AGENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_AGENT_DIR, ".env"))
 
-from prompts import GREETING_TEXT  # noqa: E402
+from prompts import GREETING_TEXT, GREETING_TEXT_HI  # noqa: E402
 from tts import build_tts  # noqa: E402
 
 AUDIO_DIR = os.path.join(_AGENT_DIR, "audio")
@@ -28,7 +28,13 @@ AUDIO_DIR = os.path.join(_AGENT_DIR, "audio")
 # name -> exact text. The text must match what the agent forwards as transcript.
 PHRASES = {
     "greeting.wav": GREETING_TEXT,
+    "greeting_hi.wav": GREETING_TEXT_HI,
 }
+
+# Generate only these, e.g. `generate_cached_audio.py greeting_hi.wav`, so an
+# existing committed WAV is not re-synthesised by accident.
+if len(sys.argv) > 1:
+    PHRASES = {name: PHRASES[name] for name in sys.argv[1:]}
 
 
 async def synth(session: aiohttp.ClientSession, text: str) -> tuple[bytes, int]:

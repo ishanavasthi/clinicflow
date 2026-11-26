@@ -1,6 +1,7 @@
 """Persona, clinic knowledge, and rules for the receptionist.
 
-English-only mode. The prompt is kept lean on purpose: each call turn resends it
+English by default; Hindi and Hinglish when CLINIC_LANGUAGES=en,hi (see
+build_system_prompt and language.py). The prompt is kept lean on purpose: each call turn resends it
 to the LLM, and the Groq free tier caps tokens-per-minute, so a shorter prompt
 means more turns fit under the limit. Rumik muga is the voice, pinned to a single
 neutral tone (see main.py); the agent strips any stray tone tag and keeps one
@@ -56,9 +57,20 @@ talks. No markdown or brackets, and never mention these rules.
 """.strip()
 
 
-def build_system_prompt() -> str:
+# With Hindi enabled, the persona's English-only sentence becomes a language
+# rule; the per-turn language note (receptionist.language_note) says which one.
+ENGLISH_ONLY_SENTENCE = """Speak in clear, natural, conversational English, the way a real receptionist
+talks."""
+BILINGUAL_SENTENCE = """Speak the caller's language, Hindi, Hinglish or English, as the note for each
+turn says, the way a real receptionist talks."""
+
+
+def build_system_prompt(languages: tuple[str, ...] = ("en",)) -> str:
+    persona = PERSONA
+    if "hi" in languages:
+        persona = PERSONA.replace(ENGLISH_ONLY_SENTENCE, BILINGUAL_SENTENCE)
     return (
-        f"{TURN_RULES}\n\n{PERSONA}\n\nClinic info:\n{CLINIC_KNOWLEDGE}"
+        f"{TURN_RULES}\n\n{persona}\n\nClinic info:\n{CLINIC_KNOWLEDGE}"
     )
 
 
@@ -75,3 +87,28 @@ GREETING_INSTRUCTION = (
     "Greet the caller as Riya from ClinicFlow and ask how you can help them. "
     "One short sentence."
 )
+
+# Hindi-enabled clinic (CLINIC_LANGUAGES=en,hi): Hindi first, offering English.
+# Hindi words in Devanagari, English words in Latin, as Rumik mulberry expects.
+# Cached as agent/audio/greeting_hi.wav by scripts/generate_cached_audio.py.
+GREETING_TEXT_HI = (
+    "नमस्ते, मैं ClinicFlow से Riya बोल रही हूँ। बताइए, मैं आपकी क्या मदद कर सकती हूँ? "
+    "You can also speak in English."
+)
+GREETING_INSTRUCTION_HI = (
+    "Greet the caller in Hindi as Riya from ClinicFlow and offer English too. "
+    "One short sentence."
+)
+
+# The only reply to a caller speaking a language nobody on the team can check.
+UNSUPPORTED_LINE = (
+    "माफ़ कीजिए, मैं सिर्फ़ हिंदी या English में मदद कर सकती हूँ। "
+    "Sorry, I can help only in Hindi or English."
+)
+
+
+def greeting_for(languages: tuple[str, ...]) -> tuple[str, str, str]:
+    """(spoken text, cached audio file, live fallback instruction)."""
+    if "hi" in languages:
+        return GREETING_TEXT_HI, "greeting_hi.wav", GREETING_INSTRUCTION_HI
+    return GREETING_TEXT, "greeting.wav", GREETING_INSTRUCTION

@@ -6,7 +6,8 @@ server timeline for durability. That event schema is the single dashboard
 contract and must stay mirrored in web/lib/types.ts.
 
 Event shape:
-    {"type": "status" | "intake_update" | "faq" | "booking" | "routing",
+    {"type": "status" | "intake_update" | "faq" | "booking" | "routing"
+             | "translation" | "doctor_summary",
      "call_id": str, "ts": int (ms), "payload": dict}
 """
 from __future__ import annotations
@@ -46,6 +47,13 @@ class CallState:
     booking_reason: Optional[str] = None
     selection_evidence: Optional[str] = None
     emergency: bool = False
+    # Languages the clinic answers in (CLINIC_LANGUAGES) and the one the caller
+    # is using now. English-only clinics never change these.
+    languages: tuple = ("en",)
+    language: str = "en"
+    # Hindi calls only: English translations of each line, and the doctor summary.
+    translations: list = field(default_factory=list)
+    doctor_summary: Optional[dict] = None
 
     def missing_intake(self) -> list[str]:
         return [f for f in INTAKE_FIELDS if not str(self.intake.get(f, "")).strip()]

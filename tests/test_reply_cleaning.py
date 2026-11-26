@@ -4,7 +4,28 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
-from receptionist import LEAK_FALLBACK, _clean_reply, _unsupported_times  # noqa: E402
+from prompts import GREETING_TEXT, GREETING_TEXT_HI, SYSTEM_PROMPT, UNSUPPORTED_LINE, build_system_prompt  # noqa: E402
+from receptionist import LEAK_FALLBACK, Receptionist, _clean_reply, _unsupported_times  # noqa: E402
+from state import CallState  # noqa: E402
+
+TAMIL = "வணக்கம், எனக்கு மருத்துவர் வேண்டும்"
+
+
+class _Stub:
+    async def publish(self, *args, **kwargs):
+        return None
+
+
+class _OfflineReceptionist(Receptionist):
+    """No live session: the caller's recent words come from the test."""
+    caller_text = ""
+
+    def _recent_user_text(self, turns: int = 3) -> str:
+        return self.caller_text
+
+
+def agent(languages):
+    return _OfflineReceptionist(CallState(), _Stub(), _Stub(), languages=languages)
 
 
 class ReplyCleaningTests(unittest.TestCase):
@@ -44,6 +65,44 @@ class SlotGuardTests(unittest.TestCase):
 
     def test_clinic_hours_are_not_appointment_offers(self):
         self.assertFalse(_unsupported_times("We are open from 8 AM to 8 PM, Monday to Saturday.", [], None))
+
+
+
+class LanguageModeTests(unittest.TestCase):
+    def test_english_prompt_is_unchanged(self):
+        self.assertEqual(build_system_prompt(("en",)), SYSTEM_PROMPT)
+        bilingual = build_system_prompt(("en", "hi"))
+        self.assertIn("Hindi, Hinglish or English", bilingual)
+        self.assertNotIn("conversational English", bilingual)
+
+    def test_greeting_follows_the_clinic_languages(self):
+        self.assertEqual(agent(("en",)).greeting_text, GREETING_TEXT)
+        self.assertEqual(agent(("en", "hi")).greeting_text, GREETING_TEXT_HI)
+
+    def test_hindi_clinic_starts_in_hindi_and_follows_the_caller(self):
+        a = agent(("en", "hi"))
+        self.assertEqual(a.state.language, "hi")
+        self.assertTrue(a.language_note("मुझे खांसी है").startswith("[language note] The caller is speaking Hindi"))
+        self.assertEqual(a.state.language, "hi")
+        self.assertIn("speaking English", a.language_note("I would like an appointment please"))
+        self.assertEqual(a.state.language, "en")
+        self.assertIn("speaking English", a.language_note("haan ji"))  # too short to switch back
+
+    def test_unsupported_language_gets_the_fixed_line(self):
+        a = agent(("en", "hi"))
+        note = a.language_note(TAMIL)
+        self.assertIn(UNSUPPORTED_LINE, note)
+        self.assertIn("Emergency", note)
+        self.assertEqual(a.state.language, "hi")
+
+    def test_english_only_clinic_adds_no_note(self):
+        a = agent(("en",))
+        self.assertIsNone(a.language_note("मुझे खांसी है"))
+        self.assertEqual(a.state.language, "en")
+
+    def test_other_indic_replies_are_never_spoken_on_a_hindi_clinic(self):
+        self.assertEqual(agent(("en", "hi")).speakable("வணக்கம்! உங்கள் பெயர் என்ன?"), UNSUPPORTED_LINE)
+        self.assertEqual(agent(("en",)).speakable("வணக்கம்! உங்கள் பெயர் என்ன?"), "வணக்கம்! உங்கள் பெயர் என்ன?")
 
 
 if __name__ == "__main__":

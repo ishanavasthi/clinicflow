@@ -36,6 +36,7 @@ from livekit.plugins import deepgram, silero
 
 import llm as llm_provider
 import realtime
+from language import enabled_languages
 import turn_clock
 import turn_latency
 from call_log import build_record, summary_of, write_record
@@ -74,7 +75,13 @@ def _voice_mode() -> str:
 
 def _validate_pipeline_env(mode: str) -> None:
     """Fail at startup with the variable name, not mid-call with a 401."""
+    languages = enabled_languages()  # raises on an unsupported language code
     if mode == "realtime":
+        if "hi" in languages:
+            raise RuntimeError(
+                "VOICE_MODE=realtime cannot be used with CLINIC_LANGUAGES=en,hi: "
+                "realtime replies skip the Hindi guards. Use VOICE_MODE=cascaded."
+            )
         realtime.api_key()
         return
     missing = [
@@ -102,9 +109,16 @@ def _build_session(mode: str, vad: object) -> AgentSession:
             llm=realtime.build_realtime(),
             max_tool_steps=4,
         )
+    # Hindi calls: nova-3 "multi" transcribes Hindi-English code-switching
+    # within a sentence. English-only clinics keep today's English model.
+    stt = (
+        deepgram.STT(model=STT_MODEL, language="multi")
+        if "hi" in enabled_languages()
+        else deepgram.STT(model=STT_MODEL)
+    )
     return AgentSession(
         vad=vad,
-        stt=deepgram.STT(model=STT_MODEL),
+        stt=stt,
         llm=llm_provider.build_llm(),
         tts=build_tts(),
         # Be more patient so the agent waits for the caller to finish instead of
@@ -124,13 +138,18 @@ def _pipeline_config(mode: str) -> dict:
     by configuration instead of pooling two different pipelines into one p95."""
     if mode == "realtime":
         return {"voice_mode": mode, "llm": realtime.resolve_config().as_dict()}
-    return {
+    config = {
         "voice_mode": mode,
         "llm": llm_provider.resolve_config().as_dict(),
         "stt": {"provider": "deepgram", "model": STT_MODEL},
         "tts": {"provider": "rumik", "model": "mulberry"},
         "min_endpointing_delay": 0.8,
     }
+    if "hi" in enabled_languages():
+        # Recorded so `make latency` groups Hindi calls separately.
+        config["stt"]["language"] = "multi"
+        config["languages"] = ["en", "hi"]
+    return config
 
 
 def error_fallback(session: AgentSession, clock=time.monotonic):

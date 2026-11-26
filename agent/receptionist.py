@@ -13,7 +13,8 @@ from typing import AsyncIterable
 from livekit.agents import Agent, ModelSettings, RunContext, function_tool
 
 import cached_audio
-from prompts import GREETING_INSTRUCTION, GREETING_TEXT, SYSTEM_PROMPT
+from language import classify, enabled_languages, has_other_indic, next_language
+from prompts import UNSUPPORTED_LINE, build_system_prompt, greeting_for
 from policy import load_policy
 from server_client import ServerClient
 from state import AgentStatePublisher, CallState
@@ -212,15 +213,40 @@ def _explicit_choice(text: str, slots: list[dict]) -> int | None:
     return next(iter(choices)) if len(choices) == 1 else None
 
 
+LANGUAGE_NOTE_PREFIX = "[language note] "
+LANGUAGE_NOTES = {
+    "hi": (
+        "The caller is speaking Hindi. Reply in natural Hindi: Hindi words in "
+        "Devanagari, everyday English clinic words (appointment, doctor, department "
+        "names) in Latin letters. When a tool result gives a Hindi time label, say it "
+        "exactly as written. Record intake values in English: the name in Latin "
+        "letters, the symptom as a short English phrase, age and phone as plain digits."
+    ),
+    "en": "The caller is speaking English. Reply in English.",
+    "other": (
+        "The caller is speaking a language this clinic cannot support. Reply with "
+        f"exactly this and nothing else: {UNSUPPORTED_LINE} If they describe chest "
+        "pain, trouble breathing, severe bleeding or stroke signs, first call "
+        "route_to_department with Emergency."
+    ),
+}
+
+
 class Receptionist(Agent):
     def __init__(
         self,
         state: CallState,
         server: ServerClient,
         publisher: AgentStatePublisher,
+        languages: tuple[str, ...] | None = None,
     ) -> None:
         self.policy = load_policy()
-        instructions = SYSTEM_PROMPT
+        languages = enabled_languages() if languages is None else languages
+        state.languages = languages
+        if "hi" in languages:
+            # A Hindi-enabled clinic greets in Hindi, so it starts in Hindi.
+            state.language = "hi"
+        instructions = build_system_prompt(languages)
         if self.policy["system_addendum"]:
             instructions += "\n\n" + self.policy["system_addendum"]
         super().__init__(instructions=instructions)
@@ -248,23 +274,55 @@ class Receptionist(Agent):
                     break
         return " ".join(reversed(texts))
 
+    @property
+    def hindi_enabled(self) -> bool:
+        return "hi" in self.state.languages
+
+    @property
+    def greeting_text(self) -> str:
+        return greeting_for(self.state.languages)[0]
+
+    def language_note(self, caller_text: str) -> str | None:
+        """Track the caller's language and tell the model which one to reply in.
+
+        Shared by the live call (on_user_turn_completed) and the eval runner, so
+        both follow the same rule. English-only clinics get no note at all.
+        """
+        if not self.hindi_enabled:
+            return None
+        if classify(caller_text) == "other":
+            return LANGUAGE_NOTE_PREFIX + LANGUAGE_NOTES["other"]
+        self.state.language = next_language(
+            self.state.language, caller_text, self.state.languages
+        )
+        return LANGUAGE_NOTE_PREFIX + LANGUAGE_NOTES[self.state.language]
+
+    async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
+        """Add this turn's language note. LiveKit passes a temporary copy of the
+        context here, so the note steers this reply only and is not kept."""
+        note = self.language_note(new_message.text_content or "")
+        if note:
+            turn_ctx.add_message(role="system", content=note)
+
     async def on_enter(self) -> None:
         """Speak first: greet the caller as soon as the agent joins.
 
         Plays the pre-generated greeting audio for an instant start (no LLM or TTS
         round trip), falling back to a live reply only if the cache is missing.
         """
-        if cached_audio.has("greeting.wav"):
-            await self.session.say(
-                GREETING_TEXT, audio=cached_audio.stream("greeting.wav")
-            )
+        text, audio, instruction = greeting_for(self.state.languages)
+        if cached_audio.has(audio):
+            await self.session.say(text, audio=cached_audio.stream(audio))
         else:
-            self.session.generate_reply(instructions=GREETING_INSTRUCTION)
+            self.session.generate_reply(instructions=instruction)
 
     def speakable(self, text: str) -> str:
         """The reply as it may be spoken: cleaned, and never offering times a
         tool did not return."""
         cleaned = _clean_reply(text)
+        if self.hindi_enabled and has_other_indic(cleaned):
+            # Never speak a language nobody on the team can check.
+            return UNSUPPORTED_LINE
         if _unsupported_times(cleaned, self.state.offered_slots, self.state.booking,
                               self._recent_user_text()):
             return SLOT_GUARD_REPLY
